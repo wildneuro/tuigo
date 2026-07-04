@@ -12,9 +12,10 @@ type (
 var RGB = types.RGB
 
 const (
-	BorderNone   = types.BorderNone
-	BorderSingle = types.BorderSingle
-	BorderDouble = types.BorderDouble
+	BorderNone    = types.BorderNone
+	BorderSingle  = types.BorderSingle
+	BorderDouble  = types.BorderDouble
+	BorderRounded = types.BorderRounded
 )
 
 // Named xterm-256 colors. Color's zero value means "unset/inherit" (see
@@ -105,10 +106,10 @@ func ColorBg(c Color) Option {
 	return func(e *Element) { e.Style.BgColor = c }
 }
 
-// Theme is a small, intentional color palette for tuigo applications.
+// ThemeColors is a small, intentional color palette for tuigo applications.
 // Prefer theme colors over raw palette indices; use RGB only for one-off
 // visual effects that don't belong in the theme.
-var Theme = struct {
+type ThemeColors struct {
 	// Surfaces
 	Background Color
 	Surface    Color
@@ -126,7 +127,9 @@ var Theme = struct {
 	Success Color
 	Warning Color
 	Error   Color
-}{
+}
+
+var DarkTheme = ThemeColors{
 	Background:  ColorBlack,
 	Surface:     RGB(30, 30, 30),
 	SurfaceAlt:  RGB(45, 45, 45),
@@ -138,3 +141,31 @@ var Theme = struct {
 	Warning:     ColorYellow,
 	Error:       ColorRed,
 }
+
+var LightTheme = ThemeColors{
+	Background:  RGB(245, 245, 245),
+	Surface:     RGB(255, 255, 255),
+	SurfaceAlt:  RGB(225, 225, 225),
+	TextPrimary: RGB(20, 20, 20),
+	TextMuted:   RGB(90, 90, 90),
+	Accent:      RGB(0, 110, 170),
+	AccentAlt:   RGB(0, 140, 120),
+	Success:     RGB(20, 130, 60),
+	Warning:     RGB(160, 110, 0),
+	Error:       RGB(180, 30, 30),
+}
+
+// NamedThemes indexes the built-in themes for cycling/lookup (e.g. a
+// "/theme" command).
+var NamedThemes = map[string]ThemeColors{
+	"dark":  DarkTheme,
+	"light": LightTheme,
+}
+
+// Theme is the active palette. It starts as DarkTheme; call SetTheme to
+// switch it — every subsequent render that reads Theme.* picks up the
+// change immediately, since it's read fresh each render, not cached.
+var Theme = DarkTheme
+
+// SetTheme replaces the active theme wholesale.
+func SetTheme(t ThemeColors) { Theme = t }

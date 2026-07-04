@@ -39,6 +39,7 @@ const (
 	BorderNone BorderStyle = iota
 	BorderSingle
 	BorderDouble
+	BorderRounded
 )
 
 // Color is a terminal color index; the zero value means "unset" so styles

@@ -11,8 +11,9 @@ type borderChars struct {
 }
 
 var (
-	singleBorder = borderChars{'┌', '┐', '└', '┘', '─', '│'}
-	doubleBorder = borderChars{'╔', '╗', '╚', '╝', '═', '║'}
+	singleBorder  = borderChars{'┌', '┐', '└', '┘', '─', '│'}
+	doubleBorder  = borderChars{'╔', '╗', '╚', '╝', '═', '║'}
+	roundedBorder = borderChars{'╭', '╮', '╰', '╯', '─', '│'}
 )
 
 // Draw walks a laid-out tree and renders it into a fresh Buffer sized
@@ -88,8 +89,11 @@ func drawBorder(buf *Buffer, rect, clip layout.Rect, kind types.BorderStyle, sty
 		return
 	}
 	chars := singleBorder
-	if kind == types.BorderDouble {
+	switch kind {
+	case types.BorderDouble:
 		chars = doubleBorder
+	case types.BorderRounded:
+		chars = roundedBorder
 	}
 	put := func(x, y int, r rune) {
 		if x < clip.X || x >= clip.X+clip.W || y < clip.Y || y >= clip.Y+clip.H {

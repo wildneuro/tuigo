@@ -42,10 +42,21 @@ var commands = []tuigo.MenuItem{
 	{Label: "/help", Hint: "show keybindings"},
 	{Label: "/clear", Hint: "clear the conversation"},
 	{Label: "/music", Hint: "open the music + gallery PiPs"},
+	{Label: "/theme", Hint: "toggle dark/light theme"},
 	{Label: "/quit", Hint: "exit tuigo chat"},
 }
 
 const maxHistoryForBar = 20 // purely decorative: what the footer ProgressBar treats as "full"
+
+// musicW/musicH size the "Now Playing" PiP: title+status+controls+help rows
+// plus an equalizer row and a seek-bar row, plus Panel's own title row and
+// top/bottom border. Bumped from the original 7 when the Winamp-style
+// equalizer/progress-bar rows were added — keep in sync with musicPanel's
+// Children in media.go, and with galleryY below which anchors off musicH.
+const (
+	musicW = 32
+	musicH = 9
+)
 
 var logWords = []string{
 	"connect", "heartbeat", "sync", "ack", "flush", "gc",
@@ -119,6 +130,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	lastStatsAt, setLastStatsAt := tuigo.UseState(ctx, time.Time{})
 	toast, setToast := tuigo.UseState(ctx, "")
 	toastUntil, setToastUntil := tuigo.UseState(ctx, time.Time{})
+	themeName, setThemeName := tuigo.UseState(ctx, "dark")
 
 	// Media PiP state: a music player (track switching via audio.PlayAsync)
 	// and an image gallery (asciiart truecolor blocks, auto-advancing on
@@ -129,6 +141,9 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	stopAudio, setStopAudio := tuigo.UseState(ctx, func() {})
 	imgIndex, setImgIndex := tuigo.UseState(ctx, 0)
 	lastImgAt, setLastImgAt := tuigo.UseState(ctx, time.Time{})
+	playStartedAt, setPlayStartedAt := tuigo.UseState(ctx, time.Time{})
+	eqSeed, setEqSeed := tuigo.UseState(ctx, 0)
+	lastEqAt, setLastEqAt := tuigo.UseState(ctx, time.Time{})
 
 	now := time.Now()
 	if now.Sub(lastTelemetryAt) > 700*time.Millisecond {
@@ -151,6 +166,10 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	if mediaOpen && now.Sub(lastImgAt) > time.Second {
 		setLastImgAt(now)
 		setImgIndex((imgIndex + 1) % len(galleryImages))
+	}
+	if playing && now.Sub(lastEqAt) > 150*time.Millisecond {
+		setLastEqAt(now)
+		setEqSeed(eqSeed + 1)
 	}
 
 	stopPlayback := func() {
@@ -176,6 +195,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 		activeStop = stop // let main() clean up on exit even if the user never closes media mode
 		setStopAudio(stop)
 		setPlaying(true)
+		setPlayStartedAt(now)
 	}
 	prevTrack := func() {
 		idx := (trackIndex - 1 + len(tracks)) % len(tracks)
@@ -202,6 +222,14 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 		stopPlayback()
 		setMediaOpen(false)
 	}
+	prevImg := func() {
+		setImgIndex((imgIndex - 1 + len(galleryImages)) % len(galleryImages))
+		setLastImgAt(now) // don't let the auto-advance immediately override a manual navigation
+	}
+	nextImg := func() {
+		setImgIndex((imgIndex + 1) % len(galleryImages))
+		setLastImgAt(now)
+	}
 
 	width, height := ctx.Size()
 	const headerH, inputH, footerH = 3, 3, 1
@@ -215,7 +243,17 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	if menuOpen {
 		menuH = len(matches) + 2 // +2 for the Menu's own border
 	}
-	messagesH := max(height-headerH-inputH-footerH-menuH, 1)
+	// The toast used to be a floating Ctx.Overlay stamped over whatever
+	// message text happened to be underneath it, which looked like a
+	// rendering glitch. It's now a plain inline flow sibling — same trick
+	// as menuH above — so it can never overlap message content: it just
+	// takes its own row and pushes the message list up by one line while
+	// it's showing.
+	toastH := 0
+	if toast != "" {
+		toastH = 1
+	}
+	messagesH := max(height-headerH-inputH-footerH-menuH-toastH, 1)
 
 	// PiP overlays, composited on top of whatever tree this render returns
 	// (including the help Dialog below) — see overlay.go: each gets its
@@ -231,11 +269,10 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	// layout underneath it, corrupting the border rendering.
 	pipBottom := headerH + messagesH
 	if mediaOpen {
-		const musicH = 7
-		const galleryChrome = 3 // gallery's own title row + top/bottom border
 		musicY := headerH + 1
 		galleryY := musicY + musicH // anchored to music's actual bottom edge, not a fixed guess — a fixed offset here previously overlapped the music panel on shorter terminals
-		ctx.Overlay(musicPanel(tracks[trackIndex], playing, trackIndex, len(tracks), prevTrack, togglePlay, nextTrack), 2, musicY)
+		shadowOverlay(ctx, 2, musicY, musicW, musicH, pipBottom)
+		ctx.Overlay(musicPanel(tracks[trackIndex], playing, trackIndex, len(tracks), prevTrack, togglePlay, nextTrack, playStartedAt, eqSeed), 2, musicY)
 
 		// Only show the gallery if it fits without overflowing into the
 		// input/footer area below pipBottom — better to omit it on a small
@@ -247,14 +284,18 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 					grid, _ = asciiart.GridFit(img, 28, min(gridH, 11))
 				}
 			}
-			ctx.Overlay(galleryPanel(grid), 2, galleryY)
+			galleryW := 20
+			if len(grid) > 0 {
+				galleryW = max(len(grid[0])+2, 20)
+			}
+			shadowOverlay(ctx, 2, galleryY, galleryW, gridH+galleryChrome, pipBottom)
+			ctx.Overlay(galleryPanel(grid, imgIndex, len(galleryImages), prevImg, nextImg), 2, galleryY)
 		}
 	} else {
+		shadowOverlay(ctx, width-30, pipBottom-8, 30, 8, pipBottom)
 		ctx.Overlay(telemetryPanel(telemetry), width-30, pipBottom-8)
+		shadowOverlay(ctx, 2, pipBottom-6, 26, 6, pipBottom)
 		ctx.Overlay(statsPanel(cpu, mem), 2, pipBottom-6)
-	}
-	if toast != "" {
-		ctx.Overlay(toastPanel(toast, func() { setToast("") }), width-26, headerH+1)
 	}
 
 	send := func() {
@@ -281,6 +322,15 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 			setMessages(nil)
 		case "/music":
 			setMediaOpen(true)
+			playTrack(trackIndex) // auto-play on open — standard media-player UX, and the only way to hear anything since play/pause is mouse-only (see the Global() media key handler comment below)
+		case "/theme":
+			if themeName == "dark" {
+				setThemeName("light")
+				tuigo.SetTheme(tuigo.NamedThemes["light"])
+			} else {
+				setThemeName("dark")
+				tuigo.SetTheme(tuigo.NamedThemes["dark"])
+			}
 		case "/quit":
 			ctx.Exit()
 		}
@@ -312,6 +362,13 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 		menuChild = tuigo.Menu(matches, menuIndex, func(i int) { runCommand(matches[i].Label) })
 	} else {
 		menuChild = tuigo.Fragment()
+	}
+
+	var toastChild tuigo.Element
+	if toast != "" {
+		toastChild = toastBanner(toast, func() { setToast("") })
+	} else {
+		toastChild = tuigo.Fragment()
 	}
 
 	// Keyboard is focus-scoped, not one global catch-all: Ctrl+C is the only
@@ -373,7 +430,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	return tuigo.Box(
 		tuigo.FlexColumn(),
 		tuigo.Width(width), tuigo.Height(height),
-		tuigo.ColorBg(tuigo.ColorBlack),
+		tuigo.ColorBg(tuigo.Theme.Background),
 		tuigo.Global()(tuigo.OnSpecialKey(tuigo.KeyCtrlC, ctx.Exit)),
 		// Only claims keys that are otherwise unused by typing/menu-nav
 		// (Left/Right/Esc) — Space or a letter like 'm' would silently
@@ -390,12 +447,17 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 				prevTrack()
 			case tuigo.KeyRight:
 				nextTrack()
+			case tuigo.KeyUp:
+				prevImg()
+			case tuigo.KeyDown:
+				nextImg()
 			case tuigo.KeyEsc:
 				closeMedia()
 			}
 		})),
 		tuigo.Children(
 			header(headerH, frame),
+			toastChild,
 			messagesPane,
 			menuChild,
 			inputBar(inputH, input, inputHandler),
@@ -440,7 +502,7 @@ func telemetryPanel(lines []string) tuigo.Element {
 	return tuigo.Panel(
 		"Telemetry",
 		tuigo.Width(30), tuigo.Height(8),
-		tuigo.Border(tuigo.BorderDouble), tuigo.ColorBg(tuigo.ColorBlack), tuigo.ColorFg(tuigo.ColorGray),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack), tuigo.ColorFg(tuigo.ColorGray),
 		tuigo.Children(rows...),
 	)
 }
@@ -451,7 +513,7 @@ func statsPanel(cpu, mem float64) tuigo.Element {
 	return tuigo.Panel(
 		"Stats",
 		tuigo.Width(26), tuigo.Height(6),
-		tuigo.Border(tuigo.BorderSingle), tuigo.ColorBg(tuigo.ColorBlack),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack),
 		tuigo.Children(
 			tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(
 				tuigo.With(tuigo.Text("cpu "), tuigo.ColorFg(tuigo.ColorGray)),
@@ -465,16 +527,47 @@ func statsPanel(cpu, mem float64) tuigo.Element {
 	)
 }
 
-// toastPanel is a third, transient PiP — a dialog-styled notification
-// popup that appears over the header for a couple of seconds after
-// sending a message, then Ctx.Overlay simply stops being called for it.
-func toastPanel(text string, dismiss func()) tuigo.Element {
+// toastBanner is a slim, transient notification that appears for a couple
+// of seconds after sending a message. It used to be a Ctx.Overlay floating
+// over the header, which could overlap message text underneath it and look
+// like a rendering glitch. It's now an ordinary inline flow element — a
+// sibling inserted between the header and the message list, exactly like
+// the "/" command Menu already is — so App's toastH shrinks messagesH to
+// make room for it and overlap is impossible by construction.
+func toastBanner(text string, dismiss func()) tuigo.Element {
 	return tuigo.Box(
-		tuigo.Width(24), tuigo.Height(3),
-		tuigo.Border(tuigo.BorderSingle), tuigo.ColorBg(tuigo.ColorBlue),
+		tuigo.Height(1), tuigo.FlexRow(), tuigo.ColorBg(tuigo.Theme.Accent),
 		tuigo.OnClick(func(tuigo.MouseEvent) { dismiss() }),
 		tuigo.Children(tuigo.With(tuigo.Text(" %s", text), tuigo.ColorFg(tuigo.ColorBrightWhite))),
 	)
+}
+
+// shadowOverlay registers a dithered drop-shadow one cell down-and-right of
+// a panel about to be drawn at (x, y, w, h) — the classic Turbo
+// Vision/Borland window shadow (medium-shade ▒ glyphs, not a flat color
+// fill) rather than a modern soft-shadow approximation. Overlays are
+// stamped in registration order (see overlay.go), so calling this
+// immediately before the real panel's Ctx.Overlay call guarantees the
+// shadow is drawn first and the panel is drawn on top of it.
+//
+// maxY caps the shadow's bottom edge (pass pipBottom) — panels anchored
+// flush against pipBottom would otherwise get a shadow that pokes 1 row
+// into the input box below, since the shadow is always offset by (+1,+1)
+// regardless of how close the panel already is to the safe-area boundary.
+// Horizontal overflow needs no such clamp: Buffer.Set already clips
+// off-screen writes safely, and there's nothing to the right of the
+// terminal edge to corrupt.
+func shadowOverlay(ctx *tuigo.Ctx, x, y, w, h, maxY int) {
+	sh := min(h, maxY-(y+1))
+	if sh <= 0 {
+		return
+	}
+	line := strings.Repeat("▒", w)
+	rows := make([]tuigo.Element, sh)
+	for i := range rows {
+		rows[i] = tuigo.With(tuigo.Text("%s", line), tuigo.ColorFg(tuigo.ColorGray))
+	}
+	ctx.Overlay(tuigo.Box(tuigo.FlexColumn(), tuigo.Width(w), tuigo.Height(sh), tuigo.Children(rows...)), x+1, y+1)
 }
 
 func inputBar(h int, input string, handler tuigo.Option) tuigo.Element {

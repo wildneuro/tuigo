@@ -2,13 +2,17 @@ package tuigo
 
 import "testing"
 
-func TestPanelPrependsTitleRow(t *testing.T) {
+func TestPanelPrependsTitleBar(t *testing.T) {
 	p := Panel("Chat", Children(Text("body")))
 	if len(p.Children) != 2 {
-		t.Fatalf("got %d children, want 2 (title + body)", len(p.Children))
+		t.Fatalf("got %d children, want 2 (title bar + body)", len(p.Children))
 	}
-	if p.Children[0].Text != " Chat" {
-		t.Errorf("title row text = %q, want %q", p.Children[0].Text, " Chat")
+	titleBar := p.Children[0]
+	if titleBar.Style.BgColor != Theme.Accent {
+		t.Errorf("title bar BgColor = %v, want Theme.Accent (%v)", titleBar.Style.BgColor, Theme.Accent)
+	}
+	if len(titleBar.Children) != 1 || titleBar.Children[0].Text != " Chat" {
+		t.Errorf("title bar children = %+v, want a single \" Chat\" text", titleBar.Children)
 	}
 	if p.Children[1].Text != "body" {
 		t.Errorf("body row text = %q, want %q", p.Children[1].Text, "body")

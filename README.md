@@ -1,9 +1,16 @@
 # tuigo
 
-A declarative, component-based terminal UI framework for Go — modeled after
-[Ink](https://github.com/vadimdemedes/ink) (React for CLIs), but built from
-plain Go function calls. No JSX, no code generation, no virtual-DOM
-reconciliation you don't need. Just `Box`, `Text`, hooks, and events.
+[![Go Reference](https://pkg.go.dev/badge/github.com/wildneuro/tuigo.svg)](https://pkg.go.dev/github.com/wildneuro/tuigo)
+[![Go Report Card](https://goreportcard.com/badge/github.com/wildneuro/tuigo)](https://goreportcard.com/report/github.com/wildneuro/tuigo)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](go.mod)
+
+A declarative, component-based **terminal UI (TUI) framework for Go** —
+modeled after [Ink](https://github.com/vadimdemedes/ink) (React for CLIs),
+but built from plain Go function calls, flexbox layout, and hooks. No JSX,
+no code generation, no virtual-DOM reconciliation you don't need. Just
+`Box`, `Text`, `UseState`, and events — a terminal UI library that feels
+like Go, not a port of a browser idea into a place that never needed it.
 
 ![demo](demo.gif)
 

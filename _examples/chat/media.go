@@ -3,8 +3,11 @@ package main
 import (
 	"embed"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
 
 	tuigo "github.com/wildneuro/tuigo"
 	"github.com/wildneuro/tuigo/asciiart"
@@ -47,23 +50,61 @@ func trackPath(file string) (string, error) {
 	return tmp, nil
 }
 
-func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext func()) tuigo.Element {
+// eqBars are the classic Winamp block-graphic levels, quietest to loudest.
+var eqBars = []rune("▁▂▃▄▅▆▇█")
+
+const eqBarCount = 12
+
+// equalizerRow renders eqBarCount independently-colored bars — like
+// galleryPanel below, each bar needs its own color (bright green normally,
+// dimming as it "peaks" is overkill here, so a flat LCD green is used) and
+// a Text element carries exactly one style for its whole string (see
+// STYLEGUIDE.md), so this is one Element per bar rather than one per row.
+// Heights are derived from eqSeed with a per-bar-index seeded RNG rather
+// than a running counter or goroutine, so this stays a pure function of
+// its inputs (see the elapsed-wall-clock-tick comment in main.go: eqSeed
+// itself is what advances over time, driven by the same pattern as the
+// telemetry/stats PiPs).
+func equalizerRow(playing bool, eqSeed int) tuigo.Element {
+	cells := make([]tuigo.Element, eqBarCount)
+	for i := range cells {
+		level := 0
+		if playing {
+			r := rand.New(rand.NewSource(int64(eqSeed)*1000 + int64(i)))
+			level = r.Intn(len(eqBars))
+		}
+		cells[i] = tuigo.With(tuigo.Text("%c", eqBars[level]), tuigo.ColorFg(tuigo.ColorBrightGreen), tuigo.ColorBg(tuigo.ColorBlack))
+	}
+	return tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(cells...))
+}
+
+// musicPanel is styled like a classic Winamp mini-player: black background,
+// bright-green LCD-style track text, an animated equalizer, and a looping
+// fake seek bar built from the existing ProgressBar widget.
+func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext func(), playStartedAt time.Time, eqSeed int) tuigo.Element {
 	status := "⏸ paused"
 	if playing {
 		status = "▶ playing"
 	}
+	seekFrac := 0.0
+	if playing && !playStartedAt.IsZero() {
+		const loopSeconds = 30.0
+		seekFrac = math.Mod(time.Since(playStartedAt).Seconds(), loopSeconds) / loopSeconds
+	}
 	return tuigo.Panel(
 		"Now Playing",
-		tuigo.Width(32), tuigo.Height(7),
-		tuigo.Border(tuigo.BorderDouble), tuigo.ColorBg(tuigo.ColorBlack),
+		tuigo.Width(musicW), tuigo.Height(musicH),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack),
 		tuigo.Children(
-			tuigo.With(tuigo.Text(" %d/%d %s", idx+1, total, t.title), tuigo.Truncate(), tuigo.ColorFg(tuigo.ColorBrightWhite)),
-			tuigo.With(tuigo.Text(" %s", status), tuigo.ColorFg(tuigo.ColorGreen)),
+			tuigo.With(tuigo.Text(" %d/%d %s", idx+1, total, t.title), tuigo.Truncate(), tuigo.ColorFg(tuigo.ColorBrightGreen), tuigo.Bold()),
+			tuigo.With(tuigo.Text(" %s", status), tuigo.ColorFg(tuigo.ColorBrightGreen)),
 			tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(
 				tuigo.With(tuigo.Text(" « prev "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onPrev() })),
 				tuigo.With(tuigo.Text(" ⏯ "), tuigo.ColorFg(tuigo.ColorYellow), tuigo.OnClick(func(tuigo.MouseEvent) { onToggle() })),
 				tuigo.With(tuigo.Text(" next » "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onNext() })),
 			)),
+			equalizerRow(playing, eqSeed),
+			tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(tuigo.ProgressBar(seekFrac, musicW-8))),
 			tuigo.With(tuigo.Text(" ←/→ or click switch   click ⏯   esc close"), tuigo.ColorFg(tuigo.ColorGray)),
 		),
 	)
@@ -74,9 +115,15 @@ func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext 
 // element carries exactly one style for its whole string (see
 // STYLEGUIDE.md's style-inheritance rule): a color image needs one
 // Element per cell, not one Element per row.
-func galleryPanel(grid [][]asciiart.Pixel) tuigo.Element {
+// galleryChrome is how many rows galleryPanel reserves beyond the image
+// grid itself: Panel's own title row + top/bottom border + this panel's
+// prev/next controls row. Callers positioning the panel (main.go) need
+// this to avoid overlapping whatever sits below it.
+const galleryChrome = 4
+
+func galleryPanel(grid [][]asciiart.Pixel, idx, total int, onPrev, onNext func()) tuigo.Element {
 	if len(grid) == 0 || len(grid[0]) == 0 {
-		return tuigo.Panel("Gallery", tuigo.Width(20), tuigo.Height(4), tuigo.Children(tuigo.Text("no image")))
+		return tuigo.Panel("Gallery", tuigo.Width(20), tuigo.Height(galleryChrome+1), tuigo.Children(tuigo.Text("no image")))
 	}
 	var rows []tuigo.Element
 	for _, row := range grid {
@@ -87,10 +134,15 @@ func galleryPanel(grid [][]asciiart.Pixel) tuigo.Element {
 		rows = append(rows, tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(cells...)))
 	}
 	w, h := len(grid[0]), len(grid)
+	controls := tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(
+		tuigo.With(tuigo.Text(" ‹ prev "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onPrev() })),
+		tuigo.With(tuigo.Text("%d/%d", idx+1, total), tuigo.ColorFg(tuigo.ColorGray)),
+		tuigo.With(tuigo.Text(" next › "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onNext() })),
+	))
 	return tuigo.Panel(
 		"Gallery",
-		tuigo.Width(w+2), tuigo.Height(h+3), // +2 border, +1 more for Panel's own title row
-		tuigo.Border(tuigo.BorderDouble),
-		tuigo.Children(rows...),
+		tuigo.Width(max(w+2, 20)), tuigo.Height(h+galleryChrome),
+		tuigo.Border(tuigo.BorderRounded),
+		tuigo.Children(append([]tuigo.Element{controls}, rows...)...),
 	)
 }

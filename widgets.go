@@ -14,11 +14,21 @@ import (
 // "div with a heading." Pass Children(...) and any other Box options
 // (Width, Height, Padding, ...) as opts; Border defaults to BorderSingle
 // and FlexColumn if not overridden by a later option.
+// Panel is a titled, bordered container in the spirit of a Turbo
+// Vision / Borland-era window frame: a full-width colored title bar rather
+// than a plain text line, so the title reads as a window's chrome instead
+// of just another content row. The bar uses Theme.Accent — a Box, not a
+// bare Text, since a standalone Text's ColorBg only paints behind its own
+// characters (see renderer/draw.go's drawText), not the full row; a Box's
+// fillBackground paints its entire rect.
 func Panel(title string, opts ...Option) Element {
 	base := append([]Option{FlexColumn(), Border(BorderSingle)}, opts...)
 	body := Box(base...)
-	titleRow := With(Text(" %s", title), Bold())
-	body.Children = append([]Element{titleRow}, body.Children...)
+	titleBar := Box(
+		Height(1), ColorBg(Theme.Accent),
+		Children(With(Text(" %s", title), Bold(), ColorFg(ColorBrightWhite))),
+	)
+	body.Children = append([]Element{titleBar}, body.Children...)
 	return body
 }
 
