@@ -206,33 +206,55 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	width, height := ctx.Size()
 	const headerH, inputH, footerH = 3, 3, 1
 
+	matches := matchingCommands(input)
+	menuOpen := len(matches) > 0
+	if menuIndex >= len(matches) {
+		menuIndex = max(len(matches)-1, 0)
+	}
+	menuH := 0
+	if menuOpen {
+		menuH = len(matches) + 2 // +2 for the Menu's own border
+	}
+	messagesH := max(height-headerH-inputH-footerH-menuH, 1)
+
 	// PiP overlays, composited on top of whatever tree this render returns
 	// (including the help Dialog below) — see overlay.go: each gets its
 	// own independent layout+draw pass, then is stamped onto the main
 	// frame buffer before the cell diff. Media mode swaps the ambient
 	// telemetry/stats PiPs for the music+gallery ones rather than stacking
 	// all four — screen space is tight and they'd overlap.
+	//
+	// Positioned relative to pipBottom (the bottom of the message area,
+	// which shrinks whenever the "/" command menu is open) rather than raw
+	// screen height — anchoring to raw height let a PiP's bottom edge
+	// collide with the input box the moment the menu changed the flow
+	// layout underneath it, corrupting the border rendering.
+	pipBottom := headerH + messagesH
 	if mediaOpen {
-		var grid [][]asciiart.Pixel
-		if data, err := assets.ReadFile("assets/" + galleryImages[imgIndex]); err == nil {
-			if img, err := asciiart.Decode(data); err == nil {
-				grid, _ = asciiart.GridFit(img, 28, 11)
+		const musicH = 7
+		const galleryChrome = 3 // gallery's own title row + top/bottom border
+		musicY := headerH + 1
+		galleryY := musicY + musicH // anchored to music's actual bottom edge, not a fixed guess — a fixed offset here previously overlapped the music panel on shorter terminals
+		ctx.Overlay(musicPanel(tracks[trackIndex], playing, trackIndex, len(tracks), prevTrack, togglePlay, nextTrack), 2, musicY)
+
+		// Only show the gallery if it fits without overflowing into the
+		// input/footer area below pipBottom — better to omit it on a small
+		// terminal than to force a minimum size that overlaps.
+		if gridH := pipBottom - galleryY - galleryChrome; gridH >= 1 {
+			var grid [][]asciiart.Pixel
+			if data, err := assets.ReadFile("assets/" + galleryImages[imgIndex]); err == nil {
+				if img, err := asciiart.Decode(data); err == nil {
+					grid, _ = asciiart.GridFit(img, 28, min(gridH, 11))
+				}
 			}
+			ctx.Overlay(galleryPanel(grid), 2, galleryY)
 		}
-		ctx.Overlay(musicPanel(tracks[trackIndex], playing, trackIndex, len(tracks), prevTrack, togglePlay, nextTrack), 2, headerH+1)
-		ctx.Overlay(galleryPanel(grid), 2, headerH+8)
 	} else {
-		ctx.Overlay(telemetryPanel(telemetry), width-30, height-10)
-		ctx.Overlay(statsPanel(cpu, mem), 2, height-9)
+		ctx.Overlay(telemetryPanel(telemetry), width-30, pipBottom-8)
+		ctx.Overlay(statsPanel(cpu, mem), 2, pipBottom-6)
 	}
 	if toast != "" {
 		ctx.Overlay(toastPanel(toast, func() { setToast("") }), width-26, headerH+1)
-	}
-
-	matches := matchingCommands(input)
-	menuOpen := len(matches) > 0
-	if menuIndex >= len(matches) {
-		menuIndex = max(len(matches)-1, 0)
 	}
 
 	send := func() {
@@ -268,12 +290,6 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	if showHelp {
 		return helpDialog(ctx, width, height, setShowHelp)
 	}
-
-	menuH := 0
-	if menuOpen {
-		menuH = len(matches) + 2 // +2 for the Menu's own border
-	}
-	messagesH := max(height-headerH-inputH-footerH-menuH, 1)
 
 	maxScroll := max(len(messages)-messagesH, 0)
 	if scrollOffset > maxScroll {
