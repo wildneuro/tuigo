@@ -105,7 +105,7 @@ func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext 
 			)),
 			equalizerRow(playing, eqSeed),
 			tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(tuigo.ProgressBar(seekFrac, musicW-8))),
-			tuigo.With(tuigo.Text(" ←/→ or click switch   click ⏯   esc close"), tuigo.ColorFg(tuigo.ColorGray)),
+			tuigo.With(tuigo.Text(" ←→ switch  ⏯ play  esc close"), tuigo.Truncate(), tuigo.ColorFg(tuigo.ColorGray)),
 		),
 	)
 }
@@ -134,7 +134,7 @@ func galleryPanel(grid [][]asciiart.Pixel, idx, total int, onPrev, onNext func()
 		rows = append(rows, tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(cells...)))
 	}
 	w, h := len(grid[0]), len(grid)
-	controls := tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(
+	controls := tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Gap(1), tuigo.Children(
 		tuigo.With(tuigo.Text(" ‹ prev "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onPrev() })),
 		tuigo.With(tuigo.Text("%d/%d", idx+1, total), tuigo.ColorFg(tuigo.ColorGray)),
 		tuigo.With(tuigo.Text(" next › "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onNext() })),
