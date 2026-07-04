@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wildneuro/tuigo/asciiart"
 	tuigo "github.com/wildneuro/tuigo"
+	"github.com/wildneuro/tuigo/asciiart"
 )
 
 //go:embed assets/track1.mp3 assets/track2.mp3 assets/track3.mp3 assets/photo1.png assets/photo2.png
@@ -64,7 +64,7 @@ func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext 
 				tuigo.With(tuigo.Text(" ⏯ "), tuigo.ColorFg(tuigo.ColorYellow), tuigo.OnClick(func(tuigo.MouseEvent) { onToggle() })),
 				tuigo.With(tuigo.Text(" next » "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.OnClick(func(tuigo.MouseEvent) { onNext() })),
 			)),
-			tuigo.With(tuigo.Text(" ←/→ switch  space play/pause  m/esc close"), tuigo.ColorFg(tuigo.ColorGray)),
+			tuigo.With(tuigo.Text(" ←/→ or click switch   click ⏯   esc close"), tuigo.ColorFg(tuigo.ColorGray)),
 		),
 	)
 }
