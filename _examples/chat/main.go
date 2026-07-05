@@ -43,8 +43,21 @@ var commands = []tuigo.MenuItem{
 	{Label: "/clear", Hint: "clear the conversation"},
 	{Label: "/music", Hint: "open the music + gallery PiPs"},
 	{Label: "/theme", Hint: "toggle dark/light theme"},
+	{Label: "/info", Hint: "open the info drawer"},
 	{Label: "/quit", Hint: "exit tuigo chat"},
 }
+
+// drawerDuration is how long the info drawer takes to slide fully into
+// view. Closing is instant (asymmetric on purpose — see infoDrawer's
+// call site comment for why animating both directions correctly is more
+// state than this demo needs).
+const drawerDuration = 250 * time.Millisecond
+
+// drawerTick is how often the render loop wakes itself up while the
+// drawer is mid-slide, via Ctx.After — Render's own re-render cadence
+// (input events + a 1s ticker) is far too coarse for smooth 250ms motion
+// on its own.
+const drawerTick = 20 * time.Millisecond
 
 const maxHistoryForBar = 20 // purely decorative: what the footer ProgressBar treats as "full"
 
@@ -131,6 +144,8 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	toast, setToast := tuigo.UseState(ctx, "")
 	toastUntil, setToastUntil := tuigo.UseState(ctx, time.Time{})
 	themeName, setThemeName := tuigo.UseState(ctx, "dark")
+	infoOpen, setInfoOpen := tuigo.UseState(ctx, false)
+	infoOpenedAt, setInfoOpenedAt := tuigo.UseState(ctx, time.Time{})
 
 	// Media PiP state: a music player (track switching via audio.PlayAsync)
 	// and an image gallery (asciiart truecolor blocks, auto-advancing on
@@ -171,6 +186,29 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	if playing && now.Sub(lastEqAt) > 150*time.Millisecond {
 		setLastEqAt(now)
 		setEqSeed(eqSeed + 1)
+	}
+
+	// Sliding info drawer. Render's own re-render cadence (input events +
+	// a 1s ticker) is far too coarse for smooth motion on its own, so
+	// while the drawer is mid-slide we schedule extra wake-ups via
+	// Ctx.After purely to force more frequent renders — the callback does
+	// nothing itself; Render always re-renders after any timer fires
+	// regardless of what the callback touched (see tuigo.go's select
+	// loop), so an empty closure is enough and there's no stale-closure
+	// risk here the way there would be if it tried to accumulate state
+	// across calls (see the telemetry/stats comment above for that trap).
+	infoProgress := 1.0
+	if infoOpen {
+		if infoOpenedAt.IsZero() {
+			setInfoOpenedAt(now)
+			infoOpenedAt = now
+		}
+		infoProgress = tuigo.Clamp01(now.Sub(infoOpenedAt).Seconds() / drawerDuration.Seconds())
+		if infoProgress < 1 {
+			ctx.After(drawerTick, func() {})
+		}
+	} else if !infoOpenedAt.IsZero() {
+		setInfoOpenedAt(time.Time{})
 	}
 
 	stopPlayback := func() {
@@ -229,6 +267,9 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	closeMedia := func() {
 		stopPlayback()
 		setMediaOpen(false)
+	}
+	closeInfo := func() {
+		setInfoOpen(false)
 	}
 	prevImg := func() {
 		setImgIndex((imgIndex - 1 + len(galleryImages)) % len(galleryImages))
@@ -309,11 +350,26 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	const statsH = 6
 	telemetryY := headerH + 1
 	statsY := telemetryY + telemetryH + 1
-	if pipBottom-telemetryY >= telemetryH {
-		ctx.Overlay(telemetryPanel(telemetry), width-30, telemetryY)
+	// Hidden while the info drawer is open (or animating in): both anchor
+	// at the same width-30 column the drawer rests at, so showing all
+	// three would overlap exactly like the music/gallery-vs-stats overlap
+	// this file has already hit twice before (see the comment on
+	// telemetryH/statsH above) — same root cause, same fix: don't draw
+	// two things in the same space, hide one instead of clipping.
+	if !infoOpen {
+		if pipBottom-telemetryY >= telemetryH {
+			ctx.Overlay(telemetryPanel(telemetry), width-30, telemetryY)
+		}
+		if pipBottom-statsY >= statsH {
+			ctx.Overlay(statsPanel(cpu, mem), width-30, statsY)
+		}
 	}
-	if pipBottom-statsY >= statsH {
-		ctx.Overlay(statsPanel(cpu, mem), width-30, statsY)
+	if infoOpen {
+		const drawerW = 30
+		drawerH := max(min(12, pipBottom-(headerH+1)), 3)
+		restX := width - drawerW - 1
+		x := int(tuigo.Lerp(float64(width), float64(restX), tuigo.EaseOutCubic(infoProgress)))
+		ctx.Overlay(infoDrawer(drawerW, drawerH), x, headerH+1)
 	}
 
 	send := func() {
@@ -349,6 +405,8 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 				setThemeName("dark")
 				tuigo.SetTheme(tuigo.NamedThemes["dark"])
 			}
+		case "/info":
+			setInfoOpen(true)
 		case "/quit":
 			ctx.Exit()
 		}
@@ -473,6 +531,11 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 				closeMedia()
 			}
 		})),
+		tuigo.Global()(tuigo.OnSpecialKey(tuigo.KeyEsc, func() {
+			if infoOpen {
+				closeInfo()
+			}
+		})),
 		tuigo.Children(
 			header(headerH, frame),
 			toastChild,
@@ -541,6 +604,34 @@ func statsPanel(cpu, mem float64) tuigo.Element {
 				tuigo.With(tuigo.Text("mem "), tuigo.ColorFg(tuigo.ColorGray)),
 				tuigo.ProgressBar(mem, 14),
 			)),
+		),
+	)
+}
+
+// infoDrawer is a right-side panel that slides in from off-screen — see
+// its Ctx.Overlay call site, which animates X from the terminal's right
+// edge to its resting position via tuigo.Lerp/EaseOutCubic. Closing is
+// instant rather than an animated slide-out: animating both directions
+// correctly needs a second timestamp (when did closing start) plus
+// direction state, and canceling an in-flight open animation if the user
+// closes mid-slide — real state, not much of it, but more than this demo
+// needs to make the point that tuigo's overlay system supports motion at
+// all. A slide-out is a reasonable follow-up if this pattern gets reused.
+func infoDrawer(w, h int) tuigo.Element {
+	return tuigo.Panel(
+		"Info",
+		tuigo.Width(w), tuigo.Height(h),
+		tuigo.ColorBg(tuigo.Theme.Surface),
+		tuigo.Children(
+			tuigo.With(tuigo.Text("tuigo"), tuigo.Bold(), tuigo.ColorFg(tuigo.Theme.TextPrimary)),
+			tuigo.With(tuigo.Text("declarative Go TUI framework"), tuigo.Truncate(), tuigo.ColorFg(tuigo.Theme.TextMuted)),
+			tuigo.Text(""),
+			tuigo.With(tuigo.Text("Tab    switch focus"), tuigo.ColorFg(tuigo.Theme.TextMuted)),
+			tuigo.With(tuigo.Text("/      command menu"), tuigo.ColorFg(tuigo.Theme.TextMuted)),
+			tuigo.With(tuigo.Text("↑ ↓    scroll / navigate"), tuigo.ColorFg(tuigo.Theme.TextMuted)),
+			tuigo.With(tuigo.Text("⌃C     quit"), tuigo.ColorFg(tuigo.Theme.TextMuted)),
+			tuigo.Text(""),
+			tuigo.With(tuigo.Text("esc to close"), tuigo.ColorFg(tuigo.Theme.TextMuted)),
 		),
 	)
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.8 - 2026-07-04
+
+- maintenance release (no notable changes)
+
 ## v0.1.7 - 2026-07-04
 
 - release v0.1.6
