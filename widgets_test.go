@@ -17,8 +17,8 @@ func TestPanelPrependsTitleBar(t *testing.T) {
 	if p.Children[1].Text != "body" {
 		t.Errorf("body row text = %q, want %q", p.Children[1].Text, "body")
 	}
-	if p.Style.Border != BorderSingle {
-		t.Errorf("Panel border = %v, want BorderSingle default", p.Style.Border)
+	if p.Style.Border != BorderRounded {
+		t.Errorf("Panel border = %v, want BorderRounded default", p.Style.Border)
 	}
 }
 

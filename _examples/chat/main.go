@@ -135,7 +135,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	// Media PiP state: a music player (track switching via audio.PlayAsync)
 	// and an image gallery (asciiart truecolor blocks, auto-advancing on
 	// the same elapsed-time pattern as the telemetry/stats PiPs above).
-	mediaOpen, setMediaOpen := tuigo.UseState(ctx, false)
+	mediaOpen, setMediaOpen := tuigo.UseState(ctx, true) // shown from the start, like Telemetry/Stats
 	trackIndex, setTrackIndex := tuigo.UseState(ctx, 0)
 	playing, setPlaying := tuigo.UseState(ctx, false)
 	stopAudio, setStopAudio := tuigo.UseState(ctx, func() {})
@@ -144,6 +144,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	playStartedAt, setPlayStartedAt := tuigo.UseState(ctx, time.Time{})
 	eqSeed, setEqSeed := tuigo.UseState(ctx, 0)
 	lastEqAt, setLastEqAt := tuigo.UseState(ctx, time.Time{})
+	mediaAutoStarted, setMediaAutoStarted := tuigo.UseState(ctx, false)
 
 	now := time.Now()
 	if now.Sub(lastTelemetryAt) > 700*time.Millisecond {
@@ -196,6 +197,13 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 		setStopAudio(stop)
 		setPlaying(true)
 		setPlayStartedAt(now)
+	}
+	// mediaOpen defaults to true so the music/gallery PiPs are visible from
+	// the first frame, same as Telemetry/Stats — this starts playback to
+	// match, exactly once (same "run once" guard as focusInit above).
+	if mediaOpen && !mediaAutoStarted {
+		setMediaAutoStarted(true)
+		playTrack(trackIndex)
 	}
 	prevTrack := func() {
 		idx := (trackIndex - 1 + len(tracks)) % len(tracks)
@@ -258,9 +266,13 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	// PiP overlays, composited on top of whatever tree this render returns
 	// (including the help Dialog below) — see overlay.go: each gets its
 	// own independent layout+draw pass, then is stamped onto the main
-	// frame buffer before the cell diff. Media mode swaps the ambient
-	// telemetry/stats PiPs for the music+gallery ones rather than stacking
-	// all four — screen space is tight and they'd overlap.
+	// frame buffer before the cell diff.
+	//
+	// Two columns so all four can show at once, like a real desktop:
+	// media (music + gallery) on the left, system PiPs (telemetry + stats)
+	// on the right — visible from the moment the app starts, same as
+	// Telemetry/Stats always were; "/music" (or Esc) now just
+	// shows/hides the left column rather than swapping the right one out.
 	//
 	// Positioned relative to pipBottom (the bottom of the message area,
 	// which shrinks whenever the "/" command menu is open) rather than raw
@@ -271,7 +283,6 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 	if mediaOpen {
 		musicY := headerH + 1
 		galleryY := musicY + musicH // anchored to music's actual bottom edge, not a fixed guess — a fixed offset here previously overlapped the music panel on shorter terminals
-		shadowOverlay(ctx, 2, musicY, musicW, musicH, pipBottom)
 		ctx.Overlay(musicPanel(tracks[trackIndex], playing, trackIndex, len(tracks), prevTrack, togglePlay, nextTrack, playStartedAt, eqSeed), 2, musicY)
 
 		// Only show the gallery if it fits without overflowing into the
@@ -284,18 +295,25 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 					grid, _ = asciiart.GridFit(img, 28, min(gridH, 11))
 				}
 			}
-			galleryW := 20
-			if len(grid) > 0 {
-				galleryW = max(len(grid[0])+2, 20)
-			}
-			shadowOverlay(ctx, 2, galleryY, galleryW, gridH+galleryChrome, pipBottom)
 			ctx.Overlay(galleryPanel(grid, imgIndex, len(galleryImages), prevImg, nextImg), 2, galleryY)
 		}
-	} else {
-		shadowOverlay(ctx, width-30, pipBottom-8, 30, 8, pipBottom)
-		ctx.Overlay(telemetryPanel(telemetry), width-30, pipBottom-8)
-		shadowOverlay(ctx, 2, pipBottom-6, 26, 6, pipBottom)
-		ctx.Overlay(statsPanel(cpu, mem), 2, pipBottom-6)
+	}
+	// telemetryH/statsH must match the fixed Height(...) each panel actually
+	// declares (telemetryPanel/statsPanel in main.go) — the fit-check below
+	// has to reason about the panel's REAL height, not a value invented at
+	// the call site, or a panel that doesn't fit still gets drawn at full
+	// size and overflows into the input box below pipBottom. That exact
+	// mismatch (checking one number, drawing at a different fixed height)
+	// is what caused the small-terminal Stats/input overlap this replaces.
+	const telemetryH = 8
+	const statsH = 6
+	telemetryY := headerH + 1
+	statsY := telemetryY + telemetryH + 1
+	if pipBottom-telemetryY >= telemetryH {
+		ctx.Overlay(telemetryPanel(telemetry), width-30, telemetryY)
+	}
+	if pipBottom-statsY >= statsH {
+		ctx.Overlay(statsPanel(cpu, mem), width-30, statsY)
 	}
 
 	send := func() {
@@ -468,7 +486,7 @@ func App(ctx *tuigo.Ctx) tuigo.Element {
 
 func header(h, frame int) tuigo.Element {
 	return tuigo.Box(
-		tuigo.Height(h), tuigo.Border(tuigo.BorderSingle), tuigo.FlexRow(),
+		tuigo.Height(h), tuigo.Border(tuigo.BorderRounded), tuigo.FlexRow(),
 		tuigo.Children(
 			tuigo.With(tuigo.Text(" tuigo chat "), tuigo.Bold(), tuigo.ColorFg(tuigo.ColorBrightWhite)),
 			tuigo.Badge("BETA", tuigo.ColorMagenta),
@@ -542,38 +560,10 @@ func toastBanner(text string, dismiss func()) tuigo.Element {
 	)
 }
 
-// shadowOverlay registers a dithered drop-shadow one cell down-and-right of
-// a panel about to be drawn at (x, y, w, h) — the classic Turbo
-// Vision/Borland window shadow (medium-shade ▒ glyphs, not a flat color
-// fill) rather than a modern soft-shadow approximation. Overlays are
-// stamped in registration order (see overlay.go), so calling this
-// immediately before the real panel's Ctx.Overlay call guarantees the
-// shadow is drawn first and the panel is drawn on top of it.
-//
-// maxY caps the shadow's bottom edge (pass pipBottom) — panels anchored
-// flush against pipBottom would otherwise get a shadow that pokes 1 row
-// into the input box below, since the shadow is always offset by (+1,+1)
-// regardless of how close the panel already is to the safe-area boundary.
-// Horizontal overflow needs no such clamp: Buffer.Set already clips
-// off-screen writes safely, and there's nothing to the right of the
-// terminal edge to corrupt.
-func shadowOverlay(ctx *tuigo.Ctx, x, y, w, h, maxY int) {
-	sh := min(h, maxY-(y+1))
-	if sh <= 0 {
-		return
-	}
-	line := strings.Repeat("▒", w)
-	rows := make([]tuigo.Element, sh)
-	for i := range rows {
-		rows[i] = tuigo.With(tuigo.Text("%s", line), tuigo.ColorFg(tuigo.ColorGray))
-	}
-	ctx.Overlay(tuigo.Box(tuigo.FlexColumn(), tuigo.Width(w), tuigo.Height(sh), tuigo.Children(rows...)), x+1, y+1)
-}
-
 func inputBar(h int, input string, handler tuigo.Option) tuigo.Element {
 	return tuigo.Box(
 		tuigo.WithKey("input"), tuigo.Focusable(), handler,
-		tuigo.Height(h), tuigo.Border(tuigo.BorderSingle), tuigo.FlexRow(),
+		tuigo.Height(h), tuigo.Border(tuigo.BorderRounded), tuigo.FlexRow(),
 		tuigo.Children(
 			tuigo.With(tuigo.Text("› "), tuigo.ColorFg(tuigo.ColorCyan), tuigo.Bold()),
 			tuigo.Text("%s", input),

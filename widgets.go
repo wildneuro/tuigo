@@ -10,19 +10,17 @@ import (
 // TUIML apps a consistent, polished starting point instead of every app
 // hand-rolling borders and colors from scratch.
 
-// Panel is a titled, bordered container — the closest thing tuigo has to a
-// "div with a heading." Pass Children(...) and any other Box options
-// (Width, Height, Padding, ...) as opts; Border defaults to BorderSingle
-// and FlexColumn if not overridden by a later option.
 // Panel is a titled, bordered container in the spirit of a Turbo
 // Vision / Borland-era window frame: a full-width colored title bar rather
 // than a plain text line, so the title reads as a window's chrome instead
 // of just another content row. The bar uses Theme.Accent — a Box, not a
 // bare Text, since a standalone Text's ColorBg only paints behind its own
 // characters (see renderer/draw.go's drawText), not the full row; a Box's
-// fillBackground paints its entire rect.
+// fillBackground paints its entire rect. Pass Children(...) and any other
+// Box options (Width, Height, Padding, ...) as opts; Border defaults to
+// BorderRounded and FlexColumn if not overridden by a later option.
 func Panel(title string, opts ...Option) Element {
-	base := append([]Option{FlexColumn(), Border(BorderSingle)}, opts...)
+	base := append([]Option{FlexColumn(), Border(BorderRounded)}, opts...)
 	body := Box(base...)
 	titleBar := Box(
 		Height(1), ColorBg(Theme.Accent),
@@ -145,5 +143,5 @@ func Menu(items []MenuItem, selected int, onSelect func(index int)) Element {
 		hint := With(Text("%s ", item.Hint), ColorFg(ColorGray), ColorBg(bg))
 		rows = append(rows, Box(FlexRow(), Height(1), ColorBg(bg), click, Children(label, Box(ColorBg(bg)), hint)))
 	}
-	return Box(FlexColumn(), Border(BorderSingle), Children(rows...))
+	return Box(FlexColumn(), Border(BorderRounded), Children(rows...))
 }
