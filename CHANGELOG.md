@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.10 - 2026-07-04
+
+- maintenance release (no notable changes)
+
 ## v0.1.9 - 2026-07-04
 
 - release.sh
