@@ -73,7 +73,7 @@ func equalizerRow(playing bool, eqSeed int) tuigo.Element {
 			r := rand.New(rand.NewSource(int64(eqSeed)*1000 + int64(i)))
 			level = r.Intn(len(eqBars))
 		}
-		cells[i] = tuigo.With(tuigo.Text("%c", eqBars[level]), tuigo.ColorFg(tuigo.ColorBrightGreen), tuigo.ColorBg(tuigo.ColorBlack))
+		cells[i] = tuigo.With(tuigo.Text("%c", eqBars[level]), tuigo.ColorFg(tuigo.ColorBrightGreen), tuigo.ColorBg(tuigo.Theme.Surface))
 	}
 	return tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(cells...))
 }
@@ -94,7 +94,7 @@ func musicPanel(t track, playing bool, idx, total int, onPrev, onToggle, onNext 
 	return tuigo.Panel(
 		"Now Playing",
 		tuigo.Width(musicW), tuigo.Height(musicH),
-		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.Theme.Surface),
 		tuigo.Children(
 			tuigo.With(tuigo.Text(" %d/%d %s", idx+1, total, t.title), tuigo.Truncate(), tuigo.ColorFg(tuigo.ColorBrightGreen), tuigo.Bold()),
 			tuigo.With(tuigo.Text(" %s", status), tuigo.ColorFg(tuigo.ColorBrightGreen)),

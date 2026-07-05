@@ -20,7 +20,7 @@ import (
 // Box options (Width, Height, Padding, ...) as opts; Border defaults to
 // BorderRounded and FlexColumn if not overridden by a later option.
 func Panel(title string, opts ...Option) Element {
-	base := append([]Option{FlexColumn(), Border(BorderRounded)}, opts...)
+	base := append([]Option{FlexColumn(), Border(BorderRounded), PaddingLeft(1), PaddingRight(1)}, opts...)
 	body := Box(base...)
 	titleBar := Box(
 		Height(1), ColorBg(Theme.Accent),

@@ -130,9 +130,9 @@ type ThemeColors struct {
 }
 
 var DarkTheme = ThemeColors{
-	Background:  ColorBlack,
-	Surface:     RGB(30, 30, 30),
-	SurfaceAlt:  RGB(45, 45, 45),
+	Background:  RGB(16, 17, 22), // a soft near-black reads as "designed"; pure black (#000) tends to look flat/cheap
+	Surface:     RGB(28, 29, 36),
+	SurfaceAlt:  RGB(42, 44, 54),
 	TextPrimary: ColorBrightWhite,
 	TextMuted:   ColorGray,
 	Accent:      RGB(0, 180, 216),

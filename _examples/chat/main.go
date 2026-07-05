@@ -520,7 +520,7 @@ func telemetryPanel(lines []string) tuigo.Element {
 	return tuigo.Panel(
 		"Telemetry",
 		tuigo.Width(30), tuigo.Height(8),
-		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack), tuigo.ColorFg(tuigo.ColorGray),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.Theme.Surface), tuigo.ColorFg(tuigo.ColorGray),
 		tuigo.Children(rows...),
 	)
 }
@@ -531,7 +531,7 @@ func statsPanel(cpu, mem float64) tuigo.Element {
 	return tuigo.Panel(
 		"Stats",
 		tuigo.Width(26), tuigo.Height(6),
-		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.ColorBlack),
+		tuigo.Border(tuigo.BorderRounded), tuigo.ColorBg(tuigo.Theme.Surface),
 		tuigo.Children(
 			tuigo.Box(tuigo.FlexRow(), tuigo.Height(1), tuigo.Children(
 				tuigo.With(tuigo.Text("cpu "), tuigo.ColorFg(tuigo.ColorGray)),
