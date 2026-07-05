@@ -13,7 +13,11 @@ import (
 	"github.com/wildneuro/tuigo/asciiart"
 )
 
-//go:embed assets/track1.mp3 assets/track2.mp3 assets/track3.mp3 assets/photo1.png assets/photo2.png
+// A wildcard rather than an explicit file list: naming each file here was a
+// recurring source of bugs (a new asset dropped into assets/ silently
+// wasn't embedded until someone remembered to add it here too).
+//
+//go:embed assets/*.mp3 assets/*.png
 var assets embed.FS
 
 type track struct{ title, file string }
@@ -24,7 +28,7 @@ var tracks = []track{
 	{"Orbital Briefing", "track3.mp3"},
 }
 
-var galleryImages = []string{"photo1.png", "photo2.png"}
+var galleryImages = []string{"vb1.png", "vb2.png"}
 
 // activeStop lets main clean up a still-playing background audio process
 // on exit — tuigo has no component unmount lifecycle yet (see TODO.md),

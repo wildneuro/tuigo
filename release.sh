@@ -54,13 +54,39 @@ echo "=== Generating demo GIF ==="
 echo "$VERSION" > "$VERSION_FILE"
 
 echo ""
-echo "=== Committing (staged files + VERSION + demo.gif; no push) ==="
-git add "$VERSION_FILE"
+echo "=== Updating CHANGELOG.md ==="
+LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+if [ -n "$LAST_TAG" ]; then
+    LOG_RANGE="$LAST_TAG..HEAD"
+else
+    LOG_RANGE="HEAD"
+fi
+CHANGES=$(git log "$LOG_RANGE" --pretty=format:'- %s' --no-merges 2>/dev/null || true)
+[ -n "$CHANGES" ] || CHANGES="- maintenance release (no notable changes)"
+RELEASE_DATE=$(date +%Y-%m-%d)
+
+CHANGELOG_FILE="CHANGELOG.md"
+[ -f "$CHANGELOG_FILE" ] || printf '# Changelog\n' > "$CHANGELOG_FILE"
+{
+    head -1 "$CHANGELOG_FILE"
+    printf '\n## %s - %s\n\n%s\n' "$VERSION" "$RELEASE_DATE" "$CHANGES"
+    tail -n +2 "$CHANGELOG_FILE"
+} > "${CHANGELOG_FILE}.tmp"
+mv "${CHANGELOG_FILE}.tmp" "$CHANGELOG_FILE"
+
+echo ""
+echo "=== Committing (staged files + VERSION + demo.gif + CHANGELOG.md; no push) ==="
+git add "$VERSION_FILE" "$CHANGELOG_FILE"
 if [ -f demo.gif ]; then
     git add demo.gif
 fi
 git commit -m "release $VERSION"
+git tag -a "$VERSION" -m "release $VERSION
+
+$CHANGES"
 
 echo ""
-echo "=== Done: $VERSION committed locally ==="
+echo "=== Done: $VERSION committed and tagged locally (no push) ==="
 git log -1 --stat
+echo ""
+echo "Push with: git push origin \$(git branch --show-current) && git push origin $VERSION"
