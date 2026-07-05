@@ -20,6 +20,14 @@ Sleep 3s
 Escape
 Sleep 500ms
 
+Type "/info"
+Sleep 500ms
+Enter
+Sleep 1500ms
+
+Escape
+Sleep 500ms
+
 Type "/help"
 Sleep 500ms
 Enter

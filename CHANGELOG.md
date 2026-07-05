@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.11 - 2026-07-04
+
+- demo.tape
+
 ## v0.1.10 - 2026-07-04
 
 - maintenance release (no notable changes)
