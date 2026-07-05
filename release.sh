@@ -61,7 +61,15 @@ if [ -n "$LAST_TAG" ]; then
 else
     LOG_RANGE="HEAD"
 fi
+# This repo does one commit per release, so "commits since the last tag"
+# is structurally always empty right here: the release commit itself
+# doesn't exist yet at this point in the script. Fall back to the list of
+# staged files (this release's actual content) rather than reporting
+# "no notable changes" every single time.
 CHANGES=$(git log "$LOG_RANGE" --pretty=format:'- %s' --no-merges 2>/dev/null || true)
+if [ -z "$CHANGES" ]; then
+    CHANGES=$(git diff --cached --name-only | sed 's/^/- /')
+fi
 [ -n "$CHANGES" ] || CHANGES="- maintenance release (no notable changes)"
 RELEASE_DATE=$(date +%Y-%m-%d)
 
