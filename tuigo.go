@@ -11,7 +11,24 @@ import (
 type Component func(ctx *Ctx) Element
 
 func Render(component Component) (err error) {
-	term, err := renderer.NewTerminal()
+	return render(component, renderer.NewTerminal)
+}
+
+// RenderInline is Render on the MAIN screen — it never takes over the
+// alternate screen buffer (see renderer.NewInlineTerminal). Use it when the
+// host already owns an alt screen that must survive the render, e.g. a PTY
+// wrapper showing a modal over a full-screen child: the wrapper switches away
+// from the child's alt buffer, calls RenderInline, then switches back and the
+// terminal restores the child's screen untouched. Same component/event model
+// as Render; still raw mode + mouse + its own stdin for the render's duration.
+func RenderInline(component Component) (err error) {
+	return render(component, renderer.NewInlineTerminal)
+}
+
+// render is the shared event loop for Render/RenderInline, differing only in
+// how the Terminal is constructed (alt-screen vs main-screen).
+func render(component Component, newTerm func() (*renderer.Terminal, error)) (err error) {
+	term, err := newTerm()
 	if err != nil {
 		return err
 	}

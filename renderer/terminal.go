@@ -28,12 +28,47 @@ type Terminal struct {
 	keyCh   chan types.Key
 	mouseCh chan types.MouseEvent
 
+	// done is closed by Close so a readLoop blocked on delivering an event
+	// exits instead of leaking on a channel nobody reads after Render returns.
+	done chan struct{}
+
+	// inline is set for a NO-ALT-SCREEN terminal (see NewInlineTerminal): it
+	// never enters/leaves the alternate screen buffer, so a host that has its
+	// own alt-screen content (e.g. a PTY-wrapped child) keeps it untouched.
+	inline bool
+
 	closeOnce sync.Once
 
 	havePos      bool
 	lastX, lastY int
 	haveStyle    bool
 	lastStyle    cellStyle
+}
+
+// enterSeq is the escape burst written on terminal setup. The alt-screen
+// (mode 1049) enter is emitted ONLY in the default (non-inline) mode; inline
+// mode renders on the MAIN screen and must not touch the alt buffer, so a
+// caller that switched away from a child's alt screen keeps that content
+// intact. Cursor-hide (25l) and SGR mouse reporting (1000+1006) apply to
+// both. Pure — unit-tested.
+func enterSeq(inline bool) string {
+	if inline {
+		return "\x1b[?25l\x1b[?1000h\x1b[?1006h"
+	}
+	return "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h"
+}
+
+// leaveSeq is the escape burst written on Close, undoing enterSeq. In the
+// default mode it leaves the alternate screen (1049l), restoring the host
+// screen the terminal saved on enter. In inline mode there is no alt buffer
+// to leave; instead it resets SGR and clears the main-screen region the modal
+// painted so it cleans up its own lines. Mouse-off + cursor-show apply to
+// both. Pure — unit-tested.
+func leaveSeq(inline bool) string {
+	if inline {
+		return "\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[0m\x1b[2J\x1b[H"
+	}
+	return "\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l"
 }
 
 type cellStyle struct {
@@ -45,7 +80,22 @@ type cellStyle struct {
 // cursor hidden, enables SGR mouse reporting, and starts the single
 // goroutine that decodes stdin into key/mouse events. Callers must defer
 // Close to restore the terminal, even on panic.
-func NewTerminal() (*Terminal, error) {
+func NewTerminal() (*Terminal, error) { return newTerminal(false) }
+
+// NewInlineTerminal is NewTerminal WITHOUT the alternate-screen takeover: it
+// renders on the MAIN screen at the current cursor/screen and never emits the
+// alt-screen enter/leave (mode 1049). Use it when the host already owns an
+// alternate screen it must preserve — e.g. a PTY wrapper that switched away
+// from a full-screen child's alt buffer and needs the terminal to keep that
+// buffer intact while a modal is shown. Raw mode, cursor-hide, and SGR mouse
+// reporting still apply for the render's duration; Close cleans up its own
+// lines. Callers must defer Close, even on panic.
+func NewInlineTerminal() (*Terminal, error) { return newTerminal(true) }
+
+// newTerminal puts stdin into raw mode, enters (unless inline) the alternate
+// screen with the cursor hidden, enables SGR mouse reporting, and starts the
+// single goroutine that decodes stdin into key/mouse events.
+func newTerminal(inline bool) (*Terminal, error) {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -58,11 +108,13 @@ func NewTerminal() (*Terminal, error) {
 		out:      os.Stdout,
 		keyCh:    make(chan types.Key),
 		mouseCh:  make(chan types.MouseEvent),
+		done:     make(chan struct{}),
+		inline:   inline,
 	}
-	// Alt screen + hide cursor + SGR extended mouse reporting (modes 1000
+	// (Alt screen) + hide cursor + SGR extended mouse reporting (modes 1000
 	// and 1006), which reports every press/release/drag with unambiguous
-	// coordinates past column/row 223.
-	t.out.WriteString("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h")
+	// coordinates past column/row 223. Inline mode omits the alt-screen enter.
+	t.out.WriteString(enterSeq(inline))
 	go t.readLoop()
 	return t, nil
 }
@@ -82,7 +134,13 @@ func (t *Terminal) Size() (int, int) {
 func (t *Terminal) Close() error {
 	var err error
 	t.closeOnce.Do(func() {
-		t.out.WriteString("\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l")
+		// Signal the reader to stop so a readLoop parked on delivering an
+		// event exits rather than leaking on channels nobody reads once
+		// Render has returned. (A read already blocked in the kernel still
+		// consumes one more byte before it unblocks and sees done — an
+		// inherent property of a blocking raw-stdin read.)
+		close(t.done)
+		t.out.WriteString(leaveSeq(t.inline))
 		err = term.Restore(t.fd, t.oldState)
 	})
 	return err
@@ -108,11 +166,22 @@ func (t *Terminal) readLoop() {
 		if !ok {
 			return
 		}
+		// Deliver, but abandon a send that no one will receive once Close has
+		// fired (done closed) so this goroutine never leaks blocked on an
+		// unread channel.
 		switch kind {
 		case eventKey:
-			t.keyCh <- key
+			select {
+			case t.keyCh <- key:
+			case <-t.done:
+				return
+			}
 		case eventMouse:
-			t.mouseCh <- mouse
+			select {
+			case t.mouseCh <- mouse:
+			case <-t.done:
+				return
+			}
 		}
 	}
 }
