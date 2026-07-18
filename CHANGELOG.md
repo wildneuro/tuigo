@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1.14 - 2026-07-17
+
+- add `tuigo.Screen` + the **pages** concept: save/restore the VISIBLE SCREEN
+  behind a dialog, the way tmux popups (capture-pane) do. `Screen` is a
+  cell-grid terminal emulator that ingests a child's output byte stream via
+  `Write` (io.Writer); `PushPage()` saves the current visible screen onto a
+  page STACK and `PopPage(w)` repaints the top saved page — so a dialog over a
+  dialog nests cleanly (push, push, pop, pop). The lower-level `Snapshot()` /
+  `(*ScreenSnapshot).Restore(w)` pair is kept for callers that manage a page
+  value themselves. `Resize(rows, cols)` tracks SIGWINCH.
+- `Screen` WRAPS the pure-Go (CGO-free) `github.com/hinshun/vt10x` emulator for
+  the full escape-sequence long tail (SGR 16/256/truecolor + bold/italic/
+  underline/reverse, cursor motion, erase, scroll region, alt-screen, …) and
+  adds a faithful grid → SGR repaint plus UTF-8-boundary buffering (a multibyte
+  rune split across two `Write`s — e.g. at a PTY read-buffer edge — is held
+  back and completed on the next `Write`, which vt10x alone drops).
+- restoring the fixed rows×cols viewport is BOUNDED work and never pollutes
+  scrollback, unlike replaying the child's raw output stream.
+
 ## v0.1.13 - 2026-07-17
 
 - add `RenderInline` / `renderer.NewInlineTerminal`: a NO-ALT-SCREEN render
