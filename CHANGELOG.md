@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.17 - 2026-07-17
+
+- maintenance release (no notable changes)
+
 ## v0.1.16 - 2026-07-17
 
 Compositor polish for embedding a DEMANDING full-screen child (e.g. Claude
