@@ -63,6 +63,13 @@ type Element struct {
 	Handlers      []KeyHandler
 	MouseHandlers []MouseHandler
 	Focusable     bool
+	// GrabKeys marks an element that, WHILE FOCUSED, consumes Tab and
+	// Shift-Tab itself instead of letting the render loop use them to cycle
+	// focus. It's how an embedded full-screen child (a TerminalPane running
+	// e.g. Claude Code, which uses Tab/Shift-Tab for its own modes) receives
+	// those keys. Focus is still switchable via the global focus chord
+	// (tuigo.FocusCycleKey, default Ctrl-O). Set it with tuigo.GrabInput().
+	GrabKeys bool
 	// Paint is invoked by the renderer for an ElementTypeCanvas node with a
 	// Surface clipped to the node's laid-out rect. Nil for every other type.
 	Paint func(Surface)

@@ -36,15 +36,12 @@ import (
 	"github.com/wildneuro/tuigo/types"
 )
 
-// cursorFg/cursorBg paint the focused pane's block cursor. tuigo hides the
-// real terminal cursor globally (renderer enterSeq emits \x1b[?25l), so the
-// child's cursor is drawn as a reverse-video block cell instead of moving the
-// hardware cursor — a deliberate MVP choice that needs no change to the global
-// cursor-hide machinery.
-var (
-	cursorBg = RGB(210, 210, 210)
-	cursorFg = RGB(0, 0, 0)
-)
+// A focused TerminalPane now shows the REAL hardware cursor at the child's
+// cursor cell (see cursor.go / Terminal.SetCursor) rather than drawing a
+// reverse-video block: the TerminalPane's Paint publishes the child cursor's
+// absolute cell into the frame's cursor slot, and the render loop un-hides and
+// positions the terminal cursor there when the pane is focused (and no overlay
+// covers it), hiding it otherwise.
 
 // paneState is a TerminalPane's per-instance runtime, persisted across renders
 // via UseState. The Screen is shared between the render goroutine (Resize +
@@ -54,7 +51,7 @@ type paneState struct {
 	mu     sync.Mutex
 	screen *Screen
 
-	in      io.Writer               // child PTY master: pane input → child stdin
+	in      io.Writer // child PTY master: pane input → child stdin
 	setsize func(rows, cols int) error
 	closeFn func()
 
@@ -92,7 +89,11 @@ func OnPaneExit(fn func(error)) Option {
 //
 //	tuigo.TerminalPane(ctx, []string{"bash"}, tuigo.WithKey("term"))
 func TerminalPane(ctx *Ctx, argv []string, opts ...Option) Element {
-	e := Element{Type: types.ElementTypeCanvas, Focusable: true}
+	// GrabKeys by default: while focused, the pane receives Tab/Shift-Tab (an
+	// embedded agent uses them) instead of the render loop cycling focus.
+	// Focus is still switchable with the global chord (tuigo.FocusCycleKey,
+	// default Ctrl-O).
+	e := Element{Type: types.ElementTypeCanvas, Focusable: true, GrabKeys: true}
 	for _, opt := range opts {
 		opt(&e)
 	}
@@ -111,7 +112,19 @@ func TerminalPane(ctx *Ctx, argv []string, opts ...Option) Element {
 		ctx.OnCleanup(st.close)
 	}
 
-	e.Paint = func(s types.Surface) { st.paint(s, ctx.IsFocused(key)) }
+	e.Paint = func(s types.Surface) {
+		st.paint(s)
+		// When focused, publish the child's cursor cell so the render loop
+		// shows the real hardware cursor there (cursor.go). Unfocused panes
+		// publish nothing, so the cursor stays hidden.
+		if ctx.IsFocused(key) {
+			bx, by, bw, bh := s.Bounds()
+			st.mu.Lock()
+			cx, cy, vis := st.screen.Cursor()
+			st.mu.Unlock()
+			publishPaneCursor(ctx.app, true, bx, by, bw, bh, cx, cy, vis)
+		}
+	}
 	e.Handlers = append(e.Handlers, types.KeyHandler{
 		Any:    true,
 		Handle: func(k types.Key) { st.writeKey(k) },
@@ -173,9 +186,9 @@ func (p *paneState) run(r io.Reader) {
 }
 
 // paint copies the Screen's cell grid onto the pane's Surface, reflowing the
-// child to the box size when it changes, and draws a block cursor at the
-// child's cursor when the pane is focused.
-func (p *paneState) paint(s types.Surface, focused bool) {
+// child to the box size when it changes. The child's cursor is drawn by the
+// render loop as the real hardware cursor (see cursor.go), not painted here.
+func (p *paneState) paint(s types.Surface) {
 	bx, by, bw, bh := s.Bounds()
 	if bw < 1 || bh < 1 {
 		return
@@ -195,13 +208,6 @@ func (p *paneState) paint(s types.Surface, focused bool) {
 		for col := 0; col < bw; col++ {
 			r, fg, bg, bold, italic, underline := p.screen.CellAt(col, row)
 			s.Set(bx+col, by+row, r, fg, bg, bold, italic, underline)
-		}
-	}
-
-	if focused {
-		if cx, cy, vis := p.screen.Cursor(); vis && cx < bw && cy < bh {
-			r, _, _, _, _, _ := p.screen.CellAt(cx, cy)
-			s.Set(bx+cx, by+cy, r, cursorFg, cursorBg, false, false, false)
 		}
 	}
 }
@@ -264,9 +270,10 @@ func (p *paneState) markExit(err error) {
 
 // keyToBytes translates a tuigo Key back into the bytes a terminal child
 // expects on stdin. Special keys map to their canonical VT sequences; a plain
-// rune is sent as its UTF-8 encoding. (Tab is consumed by the render loop for
-// focus cycling and never reaches a focused pane; it is mapped here for
-// completeness.)
+// rune is sent as its UTF-8 encoding. Tab ("\t") and Shift-Tab (CBT "\x1b[Z")
+// DO reach a focused pane now — it grabs input by default (GrabKeys), so the
+// render loop no longer steals them for focus cycling (that moved to the
+// FocusCycleKey chord).
 func keyToBytes(k types.Key) []byte {
 	switch k.Special {
 	case types.KeyEnter:
@@ -275,6 +282,8 @@ func keyToBytes(k types.Key) []byte {
 		return []byte{0x1b}
 	case types.KeyTab:
 		return []byte{'\t'}
+	case types.KeyBackTab:
+		return []byte("\x1b[Z")
 	case types.KeyBackspace:
 		return []byte{0x7f}
 	case types.KeyDelete:

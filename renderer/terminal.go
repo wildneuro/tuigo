@@ -43,6 +43,11 @@ type Terminal struct {
 	lastX, lastY int
 	haveStyle    bool
 	lastStyle    cellStyle
+
+	// cursorShown tracks the real hardware cursor's visibility so SetCursor
+	// toggles it only on change (no flicker). The cursor starts hidden
+	// (enterSeq emits ?25l).
+	cursorShown bool
 }
 
 // enterSeq is the escape burst written on terminal setup. The alt-screen
@@ -205,6 +210,10 @@ func (t *Terminal) readEvent() (types.Key, types.MouseEvent, eventKind, bool) {
 		return types.Key{Special: types.KeyEnter}, types.MouseEvent{}, eventKey, true
 	case 9:
 		return types.Key{Special: types.KeyTab}, types.MouseEvent{}, eventKey, true
+	case 15:
+		// Ctrl-O — the default global focus-cycle chord (tuigo.FocusCycleKey),
+		// kept distinct from Tab so Tab stays free for a focused pane.
+		return types.Key{Special: types.KeyCtrlO}, types.MouseEvent{}, eventKey, true
 	case 127, 8:
 		return types.Key{Special: types.KeyBackspace}, types.MouseEvent{}, eventKey, true
 	case 27:
@@ -248,6 +257,10 @@ func (t *Terminal) readEscapeSequence() (types.Key, types.MouseEvent, eventKind,
 		return t.readMouseReport()
 	}
 	switch b3 {
+	case 'Z':
+		// Shift-Tab (CBT). A distinct key so a focused grab-all pane can
+		// receive it; otherwise the render loop uses it to cycle focus back.
+		return types.Key{Special: types.KeyBackTab}, types.MouseEvent{}, eventKey, true
 	case 'A':
 		return types.Key{Special: types.KeyUp}, types.MouseEvent{}, eventKey, true
 	case 'B':
@@ -337,6 +350,14 @@ func (t *Terminal) Flush(patches []Patch) {
 		return
 	}
 	var b strings.Builder
+	// Hide the real cursor while writing cells so a shown cursor doesn't
+	// visibly skate across the screen as cells are drawn; SetCursor (called
+	// right after Flush) re-shows it at the child's cell. No-flicker frame:
+	// hide, draw, move+show.
+	if t.cursorShown {
+		b.WriteString("\x1b[?25l")
+		t.cursorShown = false
+	}
 	for _, p := range patches {
 		if !t.havePos || p.Y != t.lastY || p.X != t.lastX {
 			fmt.Fprintf(&b, "\x1b[%d;%dH", p.Y+1, p.X+1)
@@ -352,6 +373,46 @@ func (t *Terminal) Flush(patches []Patch) {
 		t.havePos = true
 	}
 	t.out.WriteString(b.String())
+}
+
+// SetCursor positions the real hardware cursor and shows or hides it. The
+// render loop calls it once per frame after Flush: when a focused TerminalPane
+// reports a live cursor tuigo shows the terminal cursor at the child's absolute
+// cell (so an embedded agent's cursor is the real, blinking one); otherwise it
+// hides it. When visible it always repositions (cell-drawing moved the cursor)
+// and un-hides only on a hidden→shown transition; when not visible it hides
+// only on a shown→hidden transition — so idle frames emit nothing.
+func (t *Terminal) SetCursor(x, y int, visible bool) {
+	seq, nowShown := cursorSeq(x, y, visible, t.cursorShown)
+	t.cursorShown = nowShown
+	if visible {
+		// We moved the cursor away from where the last cell landed; make the
+		// next Flush reposition before it writes.
+		t.havePos = false
+	}
+	if seq != "" {
+		t.out.WriteString(seq)
+	}
+}
+
+// cursorSeq is SetCursor's pure escape-builder: given the target cell, whether
+// the cursor should be visible, and whether it's currently shown, it returns
+// the escape burst to write and the new shown-state. A visible cursor always
+// repositions (cell-drawing moved it) and un-hides only on hidden→shown; an
+// invisible cursor hides only on shown→hidden, so idle frames emit nothing.
+func cursorSeq(x, y int, visible, currentlyShown bool) (seq string, nowShown bool) {
+	if visible {
+		var b strings.Builder
+		fmt.Fprintf(&b, "\x1b[%d;%dH", y+1, x+1)
+		if !currentlyShown {
+			b.WriteString("\x1b[?25h")
+		}
+		return b.String(), true
+	}
+	if currentlyShown {
+		return "\x1b[?25l", false
+	}
+	return "", false
 }
 
 func writeSGR(b *strings.Builder, s cellStyle) {

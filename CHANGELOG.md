@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.1.16 - 2026-07-17
+
+Compositor polish for embedding a DEMANDING full-screen child (e.g. Claude
+Code) in a `TerminalPane` and overlaying a dialog on it without corruption.
+New example `_examples/compositor` is the end-to-end proof.
+
+- **FIX 1 — Tab reaches the focused pane.** A focused element can now GRAB
+  input (`Element.GrabKeys`, set via the new `tuigo.GrabInput()` option;
+  `TerminalPane` sets it by default): while it holds focus, Tab and Shift-Tab
+  are dispatched TO it instead of being consumed for focus cycling, so an
+  embedded agent that uses Tab/Shift-Tab for its own modes receives them.
+  Focus is instead switched by a distinct global chord `tuigo.FocusCycleKey`
+  (**default Ctrl-O**, overridable) which always cycles focus, even over a
+  grab-all pane. New special keys `KeyBackTab` (Shift-Tab, CSI `ESC [ Z`) and
+  `KeyCtrlO` (byte `0x0f`) are decoded by the terminal and mapped back to
+  their VT bytes for the child (`\x1b[Z`).
+- **FIX 2 — real hardware cursor for the focused pane.** Instead of drawing a
+  reverse-video block, a focused `TerminalPane` publishes its child cursor's
+  absolute cell and the render loop UN-hides and positions the real terminal
+  cursor there (via the new `renderer.(*Terminal).SetCursor`), hiding it again
+  when the pane is unfocused, a non-pane element is focused, or an overlay
+  covers the cell. No flicker: the cursor is hidden while cells are flushed and
+  shown+positioned once per frame. (vt10x exposes no cursor SHAPE, so shape is
+  left as the terminal default.)
+- **FIX 3 — dialog OVER a pane with clean restore.** The compositor owns the
+  composite and repaints the pane from its `Screen` every frame, so a floating
+  `Ctx.Overlay` (e.g. a `Menu`) stamped on top of a pane wins where it overlaps
+  and, when it closes, the pane's region repaints with NO artifacts — the diff
+  restores exactly the covered cells. Verified by test.
+- new example `_examples/compositor`: a `bash` (or any argv) pane filling the
+  screen above a focusable status bar, with `Ctrl-O` to switch focus and a
+  `Menu` dialog opened over the live shell that closes back to an intact pane.
+- tests: focus routing (grab pane keeps Tab; chord cycles), cursor-visibility
+  decision (focused pane shows at computed absolute cell; unfocused/covered
+  hidden), the `SetCursor` escape state machine, and dialog-over-pane
+  compositing + restore. Full suite green under `-race`.
+
 ## v0.1.15 - 2026-07-17
 
 - add `tuigo.TerminalPane(ctx, argv, opts...)`: a tuigo element that EMBEDS a

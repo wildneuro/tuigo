@@ -93,6 +93,7 @@ func render(component Component, newTerm func() (*renderer.Terminal, error)) (er
 		markVisitedInst(app.rootInst, tree, "")
 
 		app.focusOrder = nil
+		app.focusGrab = map[string]bool{}
 		collectFocusOrder(tree, "", app)
 
 		// Preserve an existing focus target (set by Tab/FocusNext/FocusPrev,
@@ -116,8 +117,13 @@ func render(component Component, newTerm func() (*renderer.Terminal, error)) (er
 		}
 
 		node = layout.Layout(tree, app.width, app.height)
+		// Clear the frame's cursor slot before Draw; a focused TerminalPane's
+		// Paint republishes it (cursor.go). This is what makes the real
+		// hardware cursor follow the focused pane and vanish otherwise.
+		app.cursorVisible = false
 		buf := renderer.Draw(node, app.width, app.height)
 		overlayNodes = overlayNodes[:0]
+		var overlayRects []layout.Rect
 		for _, ov := range app.pendingOverlays {
 			ow, oh := ov.Element.Style.Width, ov.Element.Style.Height
 			if ow <= 0 || oh <= 0 {
@@ -125,10 +131,19 @@ func render(component Component, newTerm func() (*renderer.Terminal, error)) (er
 			}
 			ovNode := layout.Layout(ov.Element, ow, oh)
 			buf2 := renderer.Draw(ovNode, ow, oh)
+			// Overlay wins where it overlaps the pane (Stamp overwrites); when
+			// it's gone next frame the pane repaints from its Screen and Diff
+			// restores those cells — the dialog-over-pane proof (FIX 3).
 			renderer.Stamp(buf, buf2, ov.X, ov.Y)
 			overlayNodes = append(overlayNodes, overlayHit{Node: ovNode, X: ov.X, Y: ov.Y})
+			overlayRects = append(overlayRects, layout.Rect{X: ov.X, Y: ov.Y, W: ow, H: oh})
 		}
 		term.Flush(renderer.Diff(prevBuf, buf))
+		// Park the real cursor after the cells are flushed: the focused pane's
+		// child cursor, unless an overlay covers it (then hide, so a dialog's
+		// cells aren't pierced by the child's cursor).
+		cx, cy, cvis := computeCursor(app.cursorX, app.cursorY, app.cursorVisible, overlayRects)
+		term.SetCursor(cx, cy, cvis)
 		prevBuf = buf
 	}
 
@@ -139,11 +154,15 @@ func render(component Component, newTerm func() (*renderer.Terminal, error)) (er
 			if !ok {
 				return nil
 			}
-			if k.Special == KeyTab {
-				ctx := &Ctx{app: app, inst: app.rootInst}
-				ctx.FocusNext()
-				renderOnce()
-			} else {
+			// The focus chord (default Ctrl-O) always cycles focus; Tab/
+			// Shift-Tab cycle focus only when the focused element does NOT grab
+			// input (a grab-all TerminalPane keeps them). See focus.go.
+			switch routeKey(k, app.focusGrab[app.focusPath]) {
+			case routeFocusNext:
+				(&Ctx{app: app, inst: app.rootInst}).FocusNext()
+			case routeFocusPrev:
+				(&Ctx{app: app, inst: app.rootInst}).FocusPrev()
+			default:
 				dispatchGlobalKey(tree, k)
 				dispatchFocusedKey(tree, app.focusPath, k)
 			}
@@ -266,6 +285,10 @@ func collectFocusOrder(el Element, path string, app *appState) {
 	}
 	if el.Focusable && cp != "" {
 		app.focusOrder = append(app.focusOrder, cp)
+		if app.focusGrab == nil {
+			app.focusGrab = map[string]bool{}
+		}
+		app.focusGrab[cp] = el.GrabKeys
 	}
 	for i, child := range el.Children {
 		if el.Focusable {

@@ -52,6 +52,17 @@ type appState struct {
 
 	focusPath  string
 	focusOrder []string
+	// focusGrab maps a focusable element's resolved path to whether it grabs
+	// input (Element.GrabKeys). Rebuilt every render alongside focusOrder; the
+	// render loop reads focusGrab[focusPath] to decide whether Tab/Shift-Tab
+	// cycle focus or go to the focused element.
+	focusGrab map[string]bool
+
+	// Frame-local hardware-cursor slot: cleared before each Draw, set by a
+	// focused TerminalPane's Paint via publishPaneCursor, then handed to
+	// Terminal.SetCursor after compositing. See cursor.go.
+	cursorX, cursorY int
+	cursorVisible    bool
 
 	timers          chan func()
 	pendingOverlays []Overlay

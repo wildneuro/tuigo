@@ -68,7 +68,7 @@ func newTestPane() (*paneState, *bytes.Buffer, *[]int) {
 func TestPaneSizesScreenToBox(t *testing.T) {
 	p, _, sizes := newTestPane()
 	surf := newCaptureSurface(0, 0, 40, 12)
-	p.paint(surf, false)
+	p.paint(surf)
 
 	rows, cols := p.screen.Size()
 	if rows != 12 || cols != 40 {
@@ -85,14 +85,14 @@ func TestPanePaintsChildOutput(t *testing.T) {
 	p, _, _ := newTestPane()
 	surf := newCaptureSurface(3, 2, 20, 5) // non-zero origin: absolute mapping matters
 	// First paint sizes the screen; then feed output through the reader path.
-	p.paint(surf, false)
+	p.paint(surf)
 
 	p.mu.Lock()
 	p.screen.Write([]byte("hello"))
 	p.mu.Unlock()
 
 	surf2 := newCaptureSurface(3, 2, 20, 5)
-	p.paint(surf2, false)
+	p.paint(surf2)
 
 	// "hello" must land at the pane's top-left, offset by the box origin.
 	if got := surf2.rowString(2, 3, 5); got != "hello" {
@@ -104,9 +104,9 @@ func TestPanePaintsChildOutput(t *testing.T) {
 
 func TestPaneResizeRecomputesPtySize(t *testing.T) {
 	p, _, sizes := newTestPane()
-	p.paint(newCaptureSurface(0, 0, 40, 12), false)
-	p.paint(newCaptureSurface(0, 0, 40, 12), false) // same size: must NOT re-setsize
-	p.paint(newCaptureSurface(0, 0, 30, 8), false)  // changed: must reflow
+	p.paint(newCaptureSurface(0, 0, 40, 12))
+	p.paint(newCaptureSurface(0, 0, 40, 12)) // same size: must NOT re-setsize
+	p.paint(newCaptureSurface(0, 0, 30, 8))  // changed: must reflow
 
 	// Expect exactly two setsize calls: initial 12x40 and reflow 8x30.
 	if len(*sizes) != 4 {
@@ -189,7 +189,7 @@ func TestPaneChildExitPropagates(t *testing.T) {
 		t.Fatalf("clean EOF should report nil error, got %v", got)
 	}
 	// Output before EOF still made it into the screen.
-	p.paint(newCaptureSurface(0, 0, 10, 2), false)
+	p.paint(newCaptureSurface(0, 0, 10, 2))
 }
 
 // strReader returns s once then io.EOF, exercising the run() copy+exit path.
@@ -224,33 +224,43 @@ func TestPaneRealPTY(t *testing.T) {
 	}
 
 	surf := newCaptureSurface(0, 0, 20, 3)
-	p.paint(surf, false)
+	p.paint(surf)
 	if got := strings.TrimRight(surf.rowString(0, 0, 5), " "); got != "HELLO" {
 		t.Fatalf("child output not composited: got %q want HELLO", got)
 	}
 	p.close()
 }
 
-// --- 6. Cursor drawn only when focused -----------------------------------
+// --- 6. Cursor publishing: real hardware cursor only when focused --------
 
-func TestPaneCursorOnlyWhenFocused(t *testing.T) {
+// The pane no longer paints a block cursor; a focused pane instead PUBLISHES
+// its child cursor's absolute cell so the render loop shows the real terminal
+// cursor there. This asserts the publish decision (publishPaneCursor): the
+// child cursor after "AB" is at col 2, row 0, and it's published (offset by the
+// pane origin) only when focused.
+func TestPaneCursorPublishOnlyWhenFocused(t *testing.T) {
 	p, _, _ := newTestPane()
-	p.paint(newCaptureSurface(0, 0, 10, 3), false)
+	p.paint(newCaptureSurface(3, 2, 10, 3)) // sizes the screen; non-zero origin
 	p.mu.Lock()
 	p.screen.Write([]byte("AB")) // cursor now at col 2, row 0
+	cx, cy, vis := p.screen.Cursor()
 	p.mu.Unlock()
-
-	unfocused := newCaptureSurface(0, 0, 10, 3)
-	p.paint(unfocused, false)
-	focused := newCaptureSurface(0, 0, 10, 3)
-	p.paint(focused, true)
-
-	// The cursor cell (2,0) must carry the block-cursor bg only in the
-	// focused paint.
-	if unfocused.bg[[2]int{2, 0}] == cursorBg {
-		t.Fatal("unfocused pane drew a cursor")
+	if !vis || cx != 2 || cy != 0 {
+		t.Fatalf("unexpected child cursor: (%d,%d) vis=%v want (2,0) vis=true", cx, cy, vis)
 	}
-	if focused.bg[[2]int{2, 0}] != cursorBg {
-		t.Fatal("focused pane did not draw a cursor at the child cursor cell")
+
+	// Unfocused: nothing published.
+	app := &appState{}
+	publishPaneCursor(app, false, 3, 2, 10, 3, cx, cy, vis)
+	if app.cursorVisible {
+		t.Fatal("unfocused pane published a cursor")
+	}
+
+	// Focused: published at the pane origin + child cursor (3+2, 2+0).
+	app = &appState{}
+	publishPaneCursor(app, true, 3, 2, 10, 3, cx, cy, vis)
+	if !app.cursorVisible || app.cursorX != 5 || app.cursorY != 2 {
+		t.Fatalf("focused pane published wrong cursor: (%d,%d) vis=%v want (5,2) vis=true",
+			app.cursorX, app.cursorY, app.cursorVisible)
 	}
 }

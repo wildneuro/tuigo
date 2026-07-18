@@ -19,6 +19,14 @@ const (
 	KeyHome
 	KeyEnd
 	KeyCtrlC
+	// KeyBackTab is Shift-Tab (the terminal CBT sequence "ESC [ Z"). It is a
+	// distinct key so a focused grab-all element (TerminalPane) can receive
+	// it — embedded agents use Tab/Shift-Tab to move between modes.
+	KeyBackTab
+	// KeyCtrlO is Ctrl-O (byte 0x0f). It is the default global focus-cycle
+	// chord (tuigo.FocusCycleKey): a key distinct from Tab so Tab stays free
+	// for a focused pane while focus can still be switched between panes.
+	KeyCtrlO
 )
 
 // Key is a single keyboard event: either a plain rune (Special == KeyNone)

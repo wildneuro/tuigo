@@ -18,6 +18,8 @@ const (
 	KeyHome      = types.KeyHome
 	KeyEnd       = types.KeyEnd
 	KeyCtrlC     = types.KeyCtrlC
+	KeyBackTab   = types.KeyBackTab
+	KeyCtrlO     = types.KeyCtrlO
 )
 
 type Key = types.Key
@@ -25,6 +27,18 @@ type Key = types.Key
 func Focusable() Option {
 	return func(e *Element) {
 		e.Focusable = true
+	}
+}
+
+// GrabInput marks an element as focusable AND a grab-all key sink: while it
+// holds focus, Tab and Shift-Tab are delivered to it (via its key handlers)
+// instead of cycling focus, so an embedded full-screen child gets those keys.
+// Focus is still switchable with the global focus chord (FocusCycleKey,
+// default Ctrl-O). TerminalPane sets this by default.
+func GrabInput() Option {
+	return func(e *Element) {
+		e.Focusable = true
+		e.GrabKeys = true
 	}
 }
 
