@@ -135,6 +135,60 @@ func TestPaneWriteKeyForwardsBytes(t *testing.T) {
 	}
 }
 
+// TestKeyToBytesNewCases pins the wire encoding for every SpecialKey added
+// for F-keys, PageUp/PageDown, bracketed paste, and Alt-prefixed runes.
+func TestKeyToBytesNewCases(t *testing.T) {
+	cases := []struct {
+		name string
+		k    types.Key
+		want string
+	}{
+		{"PageUp", types.Key{Special: types.KeyPageUp}, "\x1b[5~"},
+		{"PageDown", types.Key{Special: types.KeyPageDown}, "\x1b[6~"},
+		{"F1", types.Key{Special: types.KeyF1}, "\x1bOP"},
+		{"F2", types.Key{Special: types.KeyF2}, "\x1bOQ"},
+		{"F3", types.Key{Special: types.KeyF3}, "\x1bOR"},
+		{"F4", types.Key{Special: types.KeyF4}, "\x1bOS"},
+		{"F5", types.Key{Special: types.KeyF5}, "\x1b[15~"},
+		{"F6", types.Key{Special: types.KeyF6}, "\x1b[17~"},
+		{"F7", types.Key{Special: types.KeyF7}, "\x1b[18~"},
+		{"F8", types.Key{Special: types.KeyF8}, "\x1b[19~"},
+		{"F9", types.Key{Special: types.KeyF9}, "\x1b[20~"},
+		{"F10", types.Key{Special: types.KeyF10}, "\x1b[21~"},
+		{"F11", types.Key{Special: types.KeyF11}, "\x1b[23~"},
+		{"F12", types.Key{Special: types.KeyF12}, "\x1b[24~"},
+		{"Paste", types.Key{Special: types.KeyPaste, Paste: "hi there"}, "\x1b[200~hi there\x1b[201~"},
+		{"Alt-a", types.Key{Rune: 'a', Alt: true}, "\x1ba"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := string(keyToBytes(c.k)); got != c.want {
+				t.Fatalf("keyToBytes(%+v) = %q, want %q", c.k, got, c.want)
+			}
+		})
+	}
+}
+
+// TestKeyToBytesCtrlLettersRoundTrip pins that Ctrl-A through Ctrl-Z (except
+// the ones that collide with an existing special-cased byte: Ctrl-C(3),
+// Backspace(8), Tab(9), Enter(13), Ctrl-O(15)) round-trip their raw control
+// byte losslessly through the generic Rune fallback — no new code was added
+// for these, this just confirms no regression.
+func TestKeyToBytesCtrlLettersRoundTrip(t *testing.T) {
+	skip := map[byte]bool{3: true, 8: true, 9: true, 13: true, 15: true}
+	for letter := byte('A'); letter <= 'Z'; letter++ {
+		ctrlByte := letter - 'A' + 1
+		if skip[ctrlByte] {
+			continue
+		}
+		k := types.Key{Rune: rune(ctrlByte)}
+		got := keyToBytes(k)
+		if len(got) != 1 || got[0] != ctrlByte {
+			t.Fatalf("Ctrl-%c: keyToBytes = %v, want [%d]", letter, got, ctrlByte)
+		}
+	}
+}
+
 // This asserts the ACTUAL focus gating through tuigo's dispatcher: the pane's
 // key handler fires only when its path == the focus path.
 func TestPaneInputGatedByFocus(t *testing.T) {

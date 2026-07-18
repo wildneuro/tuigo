@@ -2,7 +2,7 @@ package tuigo
 
 // screen.go — "pages": save and restore the VISIBLE SCREEN behind a dialog,
 // the way tmux popups (capture-pane) do. A host that already proxies a
-// full-screen child's output (e.g. tldrq's PTY shell wrapper) feeds that byte
+// full-screen child's output (e.g. a PTY shell wrapper) feeds that byte
 // stream into a Screen; before showing a dialog it PushPage()s the current
 // visible screen, and after the dialog closes it PopPage(w)s to repaint the
 // child's exact page — no reliance on the child redrawing, no alt-screen
@@ -167,6 +167,16 @@ func (s *Screen) Size() (rows, cols int) { return s.rows, s.cols }
 func (s *Screen) Cursor() (x, y int, visible bool) {
 	cur := s.term.Cursor()
 	return clamp(cur.X, 0, s.cols-1), clamp(cur.Y, 0, s.rows-1), s.term.CursorVisible()
+}
+
+// MouseMode reports whether the emulated child has enabled ANY mouse
+// reporting mode (X10/button/motion/many) and whether it additionally
+// enabled the SGR (1006) coordinate extension. A TerminalPane consults this
+// before forwarding host mouse events to the child's PTY: if the child never
+// opted in, forwarding is a silent no-op (matches real terminal behavior).
+func (s *Screen) MouseMode() (enabled bool, sgr bool) {
+	mode := s.term.Mode()
+	return mode&vt10x.ModeMouseMask != 0, mode&vt10x.ModeMouseSgr != 0
 }
 
 // CellAt returns the painted contents of one cell: its rune, resolved

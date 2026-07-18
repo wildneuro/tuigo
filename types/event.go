@@ -27,6 +27,27 @@ const (
 	// chord (tuigo.FocusCycleKey): a key distinct from Tab so Tab stays free
 	// for a focused pane while focus can still be switched between panes.
 	KeyCtrlO
+
+	// New keys below are APPENDED after KeyCtrlO so existing SpecialKey
+	// values (and anything that persisted them) never shift.
+	KeyPageUp
+	KeyPageDown
+	KeyF1
+	KeyF2
+	KeyF3
+	KeyF4
+	KeyF5
+	KeyF6
+	KeyF7
+	KeyF8
+	KeyF9
+	KeyF10
+	KeyF11
+	KeyF12
+	// KeyPaste marks a bracketed-paste event (terminal CSI "200~"..."201~").
+	// The pasted text (WITHOUT the bracketing markers) is carried in Key.Paste
+	// rather than Rune, since a paste is a whole string, not one keystroke.
+	KeyPaste
 )
 
 // Key is a single keyboard event: either a plain rune (Special == KeyNone)
@@ -34,6 +55,13 @@ const (
 type Key struct {
 	Rune    rune
 	Special SpecialKey
+	// Alt is set when Rune arrived as an Alt-prefixed chord (terminal sends
+	// ESC immediately followed by the key byte). Only meaningful alongside a
+	// non-zero Rune; special keys are never Alt-flagged.
+	Alt bool
+	// Paste holds the pasted text when Special == KeyPaste, with the
+	// bracketed-paste markers already stripped.
+	Paste string
 }
 
 // KeyHandler matches an incoming Key against a rune, a SpecialKey, or every

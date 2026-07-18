@@ -233,11 +233,13 @@ func (t *Terminal) readEvent() (types.Key, types.MouseEvent, eventKind, bool) {
 	return types.Key{Rune: r}, types.MouseEvent{}, eventKey, true
 }
 
-// readEscapeSequence handles a lone Esc, the small set of CSI sequences
-// terminals send for arrows/Home/End/Delete, and SGR mouse reports
-// ("ESC [ < Cb;Cx;Cy M/m"). Escape sequences arrive as one burst, so if
-// nothing is already buffered after the ESC byte, it's a bare Esc rather
-// than the start of a sequence.
+// readEscapeSequence handles a lone Esc, the CSI sequences terminals send for
+// arrows/Home/End/Delete/PageUp/PageDown/F5-F12/bracketed-paste, SS3 F1-F4,
+// SGR mouse reports ("ESC [ < Cb;Cx;Cy M/m"), and Alt+<key> chords (a real
+// keyboard sends ESC immediately followed by the key byte, with nothing else
+// buffered in between). Escape sequences arrive as one burst, so if nothing
+// is already buffered after the ESC byte, it's a bare Esc rather than the
+// start of a sequence.
 func (t *Terminal) readEscapeSequence() (types.Key, types.MouseEvent, eventKind, bool) {
 	esc := func() (types.Key, types.MouseEvent, eventKind, bool) {
 		return types.Key{Special: types.KeyEsc}, types.MouseEvent{}, eventKey, true
@@ -246,8 +248,34 @@ func (t *Terminal) readEscapeSequence() (types.Key, types.MouseEvent, eventKind,
 		return esc()
 	}
 	b2, err := t.in.ReadByte()
-	if err != nil || b2 != '[' {
+	if err != nil {
 		return esc()
+	}
+	if b2 == 'O' {
+		// SS3: F1-F4.
+		b3, err := t.in.ReadByte()
+		if err != nil {
+			return esc()
+		}
+		switch b3 {
+		case 'P':
+			return types.Key{Special: types.KeyF1}, types.MouseEvent{}, eventKey, true
+		case 'Q':
+			return types.Key{Special: types.KeyF2}, types.MouseEvent{}, eventKey, true
+		case 'R':
+			return types.Key{Special: types.KeyF3}, types.MouseEvent{}, eventKey, true
+		case 'S':
+			return types.Key{Special: types.KeyF4}, types.MouseEvent{}, eventKey, true
+		default:
+			return esc()
+		}
+	}
+	if b2 != '[' {
+		// Not a CSI/SS3 sequence: this is Alt+<key> — a real keyboard sends
+		// ESC immediately followed by the key's own byte. A single-byte read
+		// is an acceptable simplification (a literal Alt+<multi-byte-UTF8>
+		// chord from a real keyboard is exceedingly rare).
+		return types.Key{Rune: rune(b2), Alt: true}, types.MouseEvent{}, eventKey, true
 	}
 	b3, err := t.in.ReadByte()
 	if err != nil {
@@ -273,12 +301,102 @@ func (t *Terminal) readEscapeSequence() (types.Key, types.MouseEvent, eventKind,
 		return types.Key{Special: types.KeyHome}, types.MouseEvent{}, eventKey, true
 	case 'F':
 		return types.Key{Special: types.KeyEnd}, types.MouseEvent{}, eventKey, true
-	case '3':
-		t.in.ReadByte() // consume the trailing '~' of "ESC [ 3 ~"
-		return types.Key{Special: types.KeyDelete}, types.MouseEvent{}, eventKey, true
-	default:
-		return esc()
 	}
+	if b3 >= '0' && b3 <= '9' {
+		return t.readCSINumeric(b3)
+	}
+	return esc()
+}
+
+// readCSINumeric accumulates a numeric CSI parameter (digits already started
+// by first) up to its terminating '~', then maps the code to a Key. Codes
+// with no tuigo equivalent are dropped silently (return ok=true with a
+// zero-value key/no dispatch upstream would be wrong, so instead we recurse
+// into reading the NEXT event rather than emit a bogus key) — simplest safe
+// behavior for a rare unmapped CSI code.
+func (t *Terminal) readCSINumeric(first byte) (types.Key, types.MouseEvent, eventKind, bool) {
+	n := int(first - '0')
+	for {
+		b, err := t.in.ReadByte()
+		if err != nil {
+			return types.Key{Special: types.KeyEsc}, types.MouseEvent{}, eventKey, true
+		}
+		if b >= '0' && b <= '9' {
+			n = n*10 + int(b-'0')
+			continue
+		}
+		if b == '~' {
+			break
+		}
+		// Unexpected terminator (e.g. a ';'-separated param this table
+		// doesn't need) — bail out to a bare Esc rather than misroute.
+		return types.Key{Special: types.KeyEsc}, types.MouseEvent{}, eventKey, true
+	}
+	switch n {
+	case 3:
+		return types.Key{Special: types.KeyDelete}, types.MouseEvent{}, eventKey, true
+	case 5:
+		return types.Key{Special: types.KeyPageUp}, types.MouseEvent{}, eventKey, true
+	case 6:
+		return types.Key{Special: types.KeyPageDown}, types.MouseEvent{}, eventKey, true
+	case 15:
+		return types.Key{Special: types.KeyF5}, types.MouseEvent{}, eventKey, true
+	case 17:
+		return types.Key{Special: types.KeyF6}, types.MouseEvent{}, eventKey, true
+	case 18:
+		return types.Key{Special: types.KeyF7}, types.MouseEvent{}, eventKey, true
+	case 19:
+		return types.Key{Special: types.KeyF8}, types.MouseEvent{}, eventKey, true
+	case 20:
+		return types.Key{Special: types.KeyF9}, types.MouseEvent{}, eventKey, true
+	case 21:
+		return types.Key{Special: types.KeyF10}, types.MouseEvent{}, eventKey, true
+	case 23:
+		return types.Key{Special: types.KeyF11}, types.MouseEvent{}, eventKey, true
+	case 24:
+		return types.Key{Special: types.KeyF12}, types.MouseEvent{}, eventKey, true
+	case 200:
+		return t.readBracketedPaste()
+	default:
+		// Unmapped digit-CSI code (e.g. Insert=2): drop silently by reading
+		// the next real event rather than emitting a bogus key.
+		return t.readEvent()
+	}
+}
+
+// bracketedPasteEnd is the literal terminator byte sequence "ESC [ 201 ~".
+var bracketedPasteEnd = []byte{0x1b, '[', '2', '0', '1', '~'}
+
+// readBracketedPaste reads raw bytes (no key decoding) until it sees the
+// literal bracketed-paste end marker, then emits ONE KeyPaste event carrying
+// everything before the marker — so a paste is delivered atomically, never
+// split across events/frames.
+func (t *Terminal) readBracketedPaste() (types.Key, types.MouseEvent, eventKind, bool) {
+	var buf []byte
+	for {
+		b, err := t.in.ReadByte()
+		if err != nil {
+			return types.Key{Special: types.KeyPaste, Paste: string(buf)}, types.MouseEvent{}, eventKey, true
+		}
+		buf = append(buf, b)
+		if len(buf) >= len(bracketedPasteEnd) && bytesHaveSuffix(buf, bracketedPasteEnd) {
+			buf = buf[:len(buf)-len(bracketedPasteEnd)]
+			return types.Key{Special: types.KeyPaste, Paste: string(buf)}, types.MouseEvent{}, eventKey, true
+		}
+	}
+}
+
+func bytesHaveSuffix(b, suffix []byte) bool {
+	if len(b) < len(suffix) {
+		return false
+	}
+	tail := b[len(b)-len(suffix):]
+	for i := range suffix {
+		if tail[i] != suffix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // readMouseReport parses the body of an SGR mouse sequence after "ESC [ <":

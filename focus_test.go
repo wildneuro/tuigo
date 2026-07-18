@@ -31,6 +31,24 @@ func TestRouteKeyGrabPaneGetsTab(t *testing.T) {
 	}
 }
 
+// TestRouteKeyNewKeysAlwaysDispatch pins the invariant that neither a
+// bracketed-paste event nor an Alt-prefixed rune is ever mistaken for the
+// focus-cycle chord or Tab/Shift-Tab — they always reach normal dispatch,
+// whether or not the focused element grabs input.
+func TestRouteKeyNewKeysAlwaysDispatch(t *testing.T) {
+	paste := types.Key{Special: types.KeyPaste, Paste: "hello"}
+	altA := types.Key{Rune: 'a', Alt: true}
+
+	for _, grabs := range []bool{true, false} {
+		if got := routeKey(paste, grabs); got != routeDispatch {
+			t.Fatalf("KeyPaste (grabs=%v) should always dispatch, got %v", grabs, got)
+		}
+		if got := routeKey(altA, grabs); got != routeDispatch {
+			t.Fatalf("Alt+a (grabs=%v) should always dispatch, got %v", grabs, got)
+		}
+	}
+}
+
 // TestRouteKeyFocusChord pins the distinct focus-switch chord: it ALWAYS cycles
 // focus, even over a grab-all pane (that's how you leave the pane). The default
 // is Ctrl-O; an override is honoured.

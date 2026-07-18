@@ -2,7 +2,47 @@
 
 ## v0.1.17 - 2026-07-17
 
-- maintenance release (no notable changes)
+Closes the three known input gaps from v0.1.16: mouse never reached the
+embedded child, paste wasn't handled specially, and F-keys/Alt-letter chords
+were lost.
+
+- **Mouse passthrough to the focused pane's child.** When the FOCUSED
+  `TerminalPane`'s child has itself enabled mouse reporting (new
+  `Screen.MouseMode() (enabled, sgr bool)`, backed by vt10x's mode bits),
+  host mouse events are forwarded to the child's PTY as SGR reports
+  (`ESC [ < Cb;Cx;Cy M/m`, wheel included). Coordinates are translated from
+  absolute screen cells to pane-relative, 1-indexed cells using the pane's
+  last-painted origin (tracked in `paint()`); an event whose translated
+  coordinate falls outside the pane's last box size is dropped. If the child
+  hasn't opted into mouse reporting, forwarding is a silent no-op — same as a
+  real terminal toward an app that never asked for mouse events. New pure
+  helper `encodeSGRMouse` (mouse.go) is the inverse of
+  `renderer.readMouseReport`.
+- **Bracketed paste, delivered atomically.** `renderer.Terminal` now decodes
+  a full `ESC [ 200~ ... ESC [ 201~` burst as ONE `types.KeyPaste` event
+  carrying the inner text (markers stripped) in the new `Key.Paste` field —
+  never split across events/frames. `TerminalPane.keyToBytes` re-wraps it in
+  the bracketing markers when forwarding to the child, so the wire format
+  round-trips byte-for-byte.
+- **F1-F12, PageUp/PageDown, and Alt-letter chords.** The terminal's escape
+  reader now generalizes to a full numeric-CSI parser (`ESC [ <n> ~`) instead
+  of the old hardcoded single-digit Delete case, adding PageUp/PageDown and
+  F5-F12; F1-F4 arrive via SS3 (`ESC O P/Q/R/S`). New `types.Key.Alt` field
+  fixes a bug where `ESC` followed by a non-`[`/`O` byte (a real keyboard's
+  Alt+<key> chord) was silently dropped as a bare Esc — it now decodes as
+  `Key{Rune: <byte>, Alt: true}`. `keyToBytes` gained matching cases for
+  every new `SpecialKey` plus the Alt-rune re-prefix. Ctrl-letter chords
+  (other than the pre-existing Ctrl-C/Ctrl-O/Enter/Tab/Backspace
+  special-cases) needed no new code — they already round-trip via the
+  generic raw-control-byte path.
+- New `SpecialKey` constants (appended after `KeyCtrlO`, so existing values
+  are unchanged): `KeyPageUp`, `KeyPageDown`, `KeyF1`..`KeyF12`, `KeyPaste`.
+  New `Key` fields: `Alt bool`, `Paste string`. New `Screen` method:
+  `MouseMode() (enabled, sgr bool)`.
+- **Known remaining gap (unchanged by this release):** DECSCUSR / cursor
+  SHAPE passthrough is still NOT addressed — vt10x doesn't model cursor
+  shape, so a focused pane's real hardware cursor always renders at the
+  terminal's default shape regardless of what the child requested.
 
 ## v0.1.16 - 2026-07-17
 

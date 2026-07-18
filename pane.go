@@ -56,6 +56,7 @@ type paneState struct {
 	closeFn func()
 
 	rows, cols int // last size the child/screen were sized to
+	bx, by     int // pane's last-painted absolute origin (for mouse translation)
 	cmd        *exec.Cmd
 	ptmx       *os.File
 
@@ -129,6 +130,19 @@ func TerminalPane(ctx *Ctx, argv []string, opts ...Option) Element {
 		Any:    true,
 		Handle: func(k types.Key) { st.writeKey(k) },
 	})
+	// Forward host mouse events to the child's PTY as SGR reports, but only
+	// while this pane is FOCUSED and the child has itself enabled mouse
+	// reporting (Screen.MouseMode) — matches a real terminal's behavior
+	// toward an app that never opted in. Coordinates are translated from
+	// absolute screen cells to pane-relative in forwardMouse.
+	e.MouseHandlers = append(e.MouseHandlers, types.MouseHandler{
+		Handle: func(m types.MouseEvent) {
+			if !ctx.IsFocused(key) {
+				return
+			}
+			st.forwardMouse(m)
+		},
+	})
 	return e
 }
 
@@ -195,6 +209,8 @@ func (p *paneState) paint(s types.Surface) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	p.bx, p.by = bx, by
 
 	if bh != p.rows || bw != p.cols {
 		p.rows, p.cols = bh, bw
@@ -302,6 +318,42 @@ func keyToBytes(k types.Key) []byte {
 		return []byte("\x1b[F")
 	case types.KeyCtrlC:
 		return []byte{0x03}
+	case types.KeyPageUp:
+		return []byte("\x1b[5~")
+	case types.KeyPageDown:
+		return []byte("\x1b[6~")
+	case types.KeyF1:
+		return []byte("\x1bOP")
+	case types.KeyF2:
+		return []byte("\x1bOQ")
+	case types.KeyF3:
+		return []byte("\x1bOR")
+	case types.KeyF4:
+		return []byte("\x1bOS")
+	case types.KeyF5:
+		return []byte("\x1b[15~")
+	case types.KeyF6:
+		return []byte("\x1b[17~")
+	case types.KeyF7:
+		return []byte("\x1b[18~")
+	case types.KeyF8:
+		return []byte("\x1b[19~")
+	case types.KeyF9:
+		return []byte("\x1b[20~")
+	case types.KeyF10:
+		return []byte("\x1b[21~")
+	case types.KeyF11:
+		return []byte("\x1b[23~")
+	case types.KeyF12:
+		return []byte("\x1b[24~")
+	case types.KeyPaste:
+		return []byte("\x1b[200~" + k.Paste + "\x1b[201~")
+	}
+	// Alt-prefixed rune (a real keyboard sends ESC immediately followed by
+	// the key byte): re-prefix with ESC. Checked before the plain-rune
+	// fallback so an Alt chord doesn't lose its Alt.
+	if k.Alt && k.Rune != 0 {
+		return append([]byte{0x1b}, []byte(string(k.Rune))...)
 	}
 	if k.Rune != 0 {
 		return []byte(string(k.Rune))
