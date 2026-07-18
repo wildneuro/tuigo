@@ -157,6 +157,27 @@ func (s *Screen) Resize(rows, cols int) {
 	s.term.Resize(cols, rows) // vt10x takes (cols, rows)
 }
 
+// ---- live cell/cursor access (used by TerminalPane) ---------------------
+
+// Size reports the emulated screen dimensions in rows and cols.
+func (s *Screen) Size() (rows, cols int) { return s.rows, s.cols }
+
+// Cursor reports the child cursor's position (col x, row y) and whether it is
+// visible. A TerminalPane draws a block cursor there when the pane is focused.
+func (s *Screen) Cursor() (x, y int, visible bool) {
+	cur := s.term.Cursor()
+	return clamp(cur.X, 0, s.cols-1), clamp(cur.Y, 0, s.rows-1), s.term.CursorVisible()
+}
+
+// CellAt returns the painted contents of one cell: its rune, resolved
+// foreground/background as tuigo Colors, and the SGR attributes tuigo can
+// repaint. Palette index 0 and vt10x defaults both map to Color 0 ("unset"),
+// so they cascade to the surrounding style rather than forcing black.
+func (s *Screen) CellAt(x, y int) (r rune, fg, bg Color, bold, italic, underline bool) {
+	c := fromGlyph(s.term.Cell(x, y))
+	return c.Rune, c.Fg.toColor(), c.Bg.toColor(), c.Bold, c.Italic, c.Underline
+}
+
 // ---- pages: the primary API ---------------------------------------------
 
 // PushPage saves the current visible screen onto the page stack. Pair it with
@@ -307,6 +328,23 @@ func fromVTColor(c vt10x.Color) scolor {
 		v := uint32(c)
 		return scolor{set: true, rgb: true, r: byte(v >> 16), g: byte(v >> 8), b: byte(v)}
 	}
+}
+
+// toColor maps a screen cell color into a tuigo Color (== types.Color).
+// An unset color, and palette index 0, both become 0 ("unset/inherit") — the
+// zero Color can't distinguish palette-0 from default, and letting it cascade
+// is the right call for a composited pane.
+func (c scolor) toColor() Color {
+	if !c.set {
+		return 0
+	}
+	if c.rgb {
+		return RGB(c.r, c.g, c.b)
+	}
+	if c.idx == 0 {
+		return 0
+	}
+	return Color(c.idx)
 }
 
 func clamp(v, lo, hi int) int {

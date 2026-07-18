@@ -1,6 +1,9 @@
 package tuigo
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type instance struct {
 	hooks    []any
@@ -105,6 +108,43 @@ func (c *Ctx) FocusPrev() {
 		}
 	}
 	c.app.focusPath = c.app.focusOrder[len(c.app.focusOrder)-1]
+}
+
+// Wake asks the render loop to run one more frame as soon as it can. It is
+// the redraw trigger a BACKGROUND goroutine uses after mutating state the UI
+// reads (e.g. a TerminalPane's reader goroutine after writing child output
+// into its Screen): the loop selects on the same timers channel Ctx.After
+// feeds, so a wake is just an empty job pushed onto it. Safe to call from any
+// goroutine; non-blocking (a wake is dropped only when one is already queued,
+// which is fine — the queued frame will observe the latest state anyway).
+func (c *Ctx) Wake() {
+	select {
+	case c.app.timers <- func() {}:
+	default:
+	}
+}
+
+// IsFocused reports whether the element identified by key currently holds
+// focus. It matches the app's focus path exactly or by trailing segment, so a
+// pane keyed "term" is focused whether its resolved path is "term" or
+// "panes/term". Used by a Canvas painter to decide whether to draw the child's
+// cursor.
+func (c *Ctx) IsFocused(key string) bool {
+	if key == "" {
+		return false
+	}
+	fp := c.app.focusPath
+	return fp == key || strings.HasSuffix(fp, "/"+key)
+}
+
+// OnCleanup registers fn to run when this component instance is unmounted
+// (removed from the tree on a later render). It piggybacks the same
+// per-instance teardown list Ctx.After cancels use, so a long-lived resource —
+// e.g. a TerminalPane's child process and PTY — is released when the pane
+// leaves the tree. Call it once per mount (guard with UseState), not every
+// render.
+func (c *Ctx) OnCleanup(fn func()) {
+	c.inst.timers = append(c.inst.timers, fn)
 }
 
 func (c *Ctx) After(d time.Duration, fn func()) func() {

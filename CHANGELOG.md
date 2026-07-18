@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.1.15 - 2026-07-17
+
+- add `tuigo.TerminalPane(ctx, argv, opts...)`: a tuigo element that EMBEDS a
+  child process running in a PTY and composites its live screen as a
+  rectangular region of the layout — the core of turning tuigo into a terminal
+  compositor (tmux/zellij-as-a-library). It spawns argv in a PTY
+  (`github.com/creack/pty`, pure-Go/CGO-free), models the child's output with a
+  `tuigo.Screen` (vt10x), and paints its cell grid every frame.
+  - OUTPUT: a background goroutine copies child PTY output into the Screen and
+    calls the new `Ctx.Wake()` to make the render loop draw one more frame with
+    the fresh content (the redraw-from-goroutine trigger — an empty job pushed
+    onto the same timers channel `Ctx.After` feeds).
+  - RESIZE: the pane reflows the child to its flex-allocated box —
+    `Screen.Resize` + `pty.Setsize` — whenever the laid-out size changes.
+  - INPUT: a non-global Any key handler forwards translated keystrokes to the
+    child's PTY stdin; tuigo's focus dispatch fires it ONLY on the focused
+    element, so an unfocused pane receives nothing (focus gating for free).
+    `Ctx.IsFocused(key)` gates the block cursor drawn at the child's cursor.
+  - LIFECYCLE: `Ctx.OnCleanup` kills+reaps the child and closes the PTY on
+    unmount; `OnPaneExit(fn)` surfaces the child's own exit to a parent.
+- add the `ElementTypeCanvas` element type + `Element.Paint(types.Surface)`
+  hook: a leaf that paints its own cells into its laid-out rect (flex like a
+  Box, no children). The renderer supplies a clipped `Surface`; TerminalPane is
+  built on it. New `Ctx` helpers: `Wake`, `IsFocused`, `OnCleanup`. New
+  `Screen` accessors: `Size`, `Cursor`, `CellAt`.
+- new example `_examples/termpane`: a minimal compositor embedding a live
+  `bash`/`vim` beside a status column.
+
 ## v0.1.14 - 2026-07-17
 
 - add `tuigo.Screen` + the **pages** concept: save/restore the VISIBLE SCREEN

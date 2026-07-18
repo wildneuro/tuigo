@@ -46,7 +46,36 @@ func drawNode(buf *Buffer, n layout.Node, inherited types.Style, clip layout.Rec
 		for _, c := range n.Children {
 			drawNode(buf, c, resolved, clip)
 		}
+	case types.ElementTypeCanvas:
+		if n.Element.Paint != nil {
+			n.Element.Paint(&bufferSurface{buf: buf, rect: n.Rect, clip: n.Rect.Intersect(clip)})
+		}
 	}
+}
+
+// bufferSurface adapts a Buffer into the types.Surface a Canvas paints onto.
+// Bounds reports the node's full rect (so a painter sizes its content to the
+// whole box), while Set clips writes to the intersection of that rect with
+// every ancestor's content area — a Canvas can never scribble outside its
+// laid-out region.
+type bufferSurface struct {
+	buf  *Buffer
+	rect layout.Rect
+	clip layout.Rect
+}
+
+func (s *bufferSurface) Bounds() (x, y, w, h int) {
+	return s.rect.X, s.rect.Y, s.rect.W, s.rect.H
+}
+
+func (s *bufferSurface) Set(x, y int, r rune, fg, bg types.Color, bold, italic, underline bool) {
+	if x < s.clip.X || x >= s.clip.X+s.clip.W || y < s.clip.Y || y >= s.clip.Y+s.clip.H {
+		return
+	}
+	if r == 0 {
+		r = ' '
+	}
+	s.buf.Set(x, y, Cell{Rune: r, Fg: fg, Bg: bg, Bold: bold, Italic: italic, Underline: underline})
 }
 
 // resolveCascade applies STYLEGUIDE.md rule 4: text-styling fields cascade
