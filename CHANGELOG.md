@@ -1,6 +1,9 @@
 # Changelog
 
-## v0.1.17 - 2026-07-17
+## v0.1.18 - 2026-07-17
+
+(v0.1.17 was tagged as a placeholder maintenance release with no changes;
+this version carries the actual work.)
 
 Closes the three known input gaps from v0.1.16: mouse never reached the
 embedded child, paste wasn't handled specially, and F-keys/Alt-letter chords
