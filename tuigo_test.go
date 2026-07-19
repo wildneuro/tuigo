@@ -118,6 +118,43 @@ func TestDispatchGlobalKeyNotFiredForNonGlobal(t *testing.T) {
 	}
 }
 
+// TestOnHotkeyFiresRegardlessOfFocus proves OnHotkey is sugar over
+// Global()(OnSpecialKey(...)): it fires via dispatchGlobalKey even when a
+// DIFFERENT focusable child holds focus.
+func TestOnHotkeyFiresRegardlessOfFocus(t *testing.T) {
+	fired := 0
+	e := Box(
+		OnHotkey(KeyCtrlRBracket, func() { fired++ }),
+		Children(
+			Box(WithKey("input"), Focusable()),
+		),
+	)
+
+	dispatchGlobalKey(e, types.Key{Special: types.KeyCtrlRBracket})
+	dispatchFocusedKey(e, "input", types.Key{Special: types.KeyCtrlRBracket})
+
+	if fired != 1 {
+		t.Errorf("OnHotkey fired %d times, want 1", fired)
+	}
+}
+
+// TestNonGlobalSpecialKeyNotFiredWhenUnfocused extends the existing
+// non-global coverage to a SpecialKey handler on an unfocused element.
+func TestNonGlobalSpecialKeyNotFiredWhenUnfocused(t *testing.T) {
+	fired := false
+	e := Box(
+		WithKey("input"),
+		Focusable(),
+		OnSpecialKey(KeyCtrlRBracket, func() { fired = true }),
+	)
+
+	dispatchFocusedKey(e, "other", types.Key{Special: types.KeyCtrlRBracket})
+
+	if fired {
+		t.Errorf("non-global OnSpecialKey handler fired while unfocused")
+	}
+}
+
 func TestFocusableElementCanBeFocused(t *testing.T) {
 	e := Box(
 		WithKey("input"),

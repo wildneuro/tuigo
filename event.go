@@ -20,6 +20,13 @@ const (
 	KeyCtrlC     = types.KeyCtrlC
 	KeyBackTab   = types.KeyBackTab
 	KeyCtrlO     = types.KeyCtrlO
+
+	KeyCtrlSpace      = types.KeyCtrlSpace
+	KeyCtrlG          = types.KeyCtrlG
+	KeyCtrlBackslash  = types.KeyCtrlBackslash
+	KeyCtrlRBracket   = types.KeyCtrlRBracket
+	KeyCtrlCaret      = types.KeyCtrlCaret
+	KeyCtrlUnderscore = types.KeyCtrlUnderscore
 )
 
 type Key = types.Key
@@ -64,6 +71,12 @@ func OnSpecialKey(k SpecialKey, handler func()) Option {
 		e.Handlers = append(e.Handlers, types.KeyHandler{Special: k, Handle: func(types.Key) { handler() }})
 	}
 }
+
+// OnHotkey registers a GLOBAL key binding: handler fires when k is
+// pressed anywhere in the app, regardless of which element holds focus
+// (sugar over Global()(OnSpecialKey(...))). Attach it to any element —
+// conventionally the root.
+func OnHotkey(k SpecialKey, handler func()) Option { return Global()(OnSpecialKey(k, handler)) }
 
 func OnAnyKey(handler func(Key)) Option {
 	return func(e *Element) {

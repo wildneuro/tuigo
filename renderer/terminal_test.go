@@ -50,6 +50,35 @@ func TestReadEventCSINumeric(t *testing.T) {
 	}
 }
 
+// TestReadEventC0Hotkeys pins the free C0 control bytes as distinct
+// SpecialKeys (Ctrl-Space/G/\/]/^/_), added for the OnHotkey feature.
+func TestReadEventC0Hotkeys(t *testing.T) {
+	cases := []struct {
+		name string
+		b    byte
+		want types.SpecialKey
+	}{
+		{"CtrlSpace", 0x00, types.KeyCtrlSpace},
+		{"CtrlG", 0x07, types.KeyCtrlG},
+		{"CtrlBackslash", 0x1c, types.KeyCtrlBackslash},
+		{"CtrlRBracket", 0x1d, types.KeyCtrlRBracket},
+		{"CtrlCaret", 0x1e, types.KeyCtrlCaret},
+		{"CtrlUnderscore", 0x1f, types.KeyCtrlUnderscore},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			term := newTestTerminal(string([]byte{c.b}))
+			k, _, kind, ok := term.readEvent()
+			if !ok || kind != eventKey {
+				t.Fatalf("%s: readEvent failed ok=%v kind=%v", c.name, ok, kind)
+			}
+			if k.Special != c.want {
+				t.Fatalf("%s: got Special=%v, want %v", c.name, k.Special, c.want)
+			}
+		})
+	}
+}
+
 // TestReadEventSS3FKeys pins F1-F4 via SS3 ("ESC O P/Q/R/S").
 func TestReadEventSS3FKeys(t *testing.T) {
 	cases := []struct {

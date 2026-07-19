@@ -204,8 +204,14 @@ func (t *Terminal) readEvent() (types.Key, types.MouseEvent, eventKind, bool) {
 		return types.Key{}, types.MouseEvent{}, eventKey, false
 	}
 	switch b {
+	case 0:
+		// Ctrl-Space (NUL). Not otherwise meaningful in this read path (no
+		// padding/framing byte relies on a lone NUL here).
+		return types.Key{Special: types.KeyCtrlSpace}, types.MouseEvent{}, eventKey, true
 	case 3:
 		return types.Key{Special: types.KeyCtrlC}, types.MouseEvent{}, eventKey, true
+	case 7:
+		return types.Key{Special: types.KeyCtrlG}, types.MouseEvent{}, eventKey, true
 	case 13, 10:
 		return types.Key{Special: types.KeyEnter}, types.MouseEvent{}, eventKey, true
 	case 9:
@@ -216,6 +222,14 @@ func (t *Terminal) readEvent() (types.Key, types.MouseEvent, eventKind, bool) {
 		return types.Key{Special: types.KeyCtrlO}, types.MouseEvent{}, eventKey, true
 	case 127, 8:
 		return types.Key{Special: types.KeyBackspace}, types.MouseEvent{}, eventKey, true
+	case 28:
+		return types.Key{Special: types.KeyCtrlBackslash}, types.MouseEvent{}, eventKey, true
+	case 29:
+		return types.Key{Special: types.KeyCtrlRBracket}, types.MouseEvent{}, eventKey, true
+	case 30:
+		return types.Key{Special: types.KeyCtrlCaret}, types.MouseEvent{}, eventKey, true
+	case 31:
+		return types.Key{Special: types.KeyCtrlUnderscore}, types.MouseEvent{}, eventKey, true
 	case 27:
 		return t.readEscapeSequence()
 	}

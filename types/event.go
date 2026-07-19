@@ -48,6 +48,20 @@ const (
 	// The pasted text (WITHOUT the bracketing markers) is carried in Key.Paste
 	// rather than Rune, since a paste is a whole string, not one keystroke.
 	KeyPaste
+
+	// KeyCtrlSpace is Ctrl-Space (byte 0x00).
+	KeyCtrlSpace
+	// KeyCtrlG is Ctrl-G (byte 0x07).
+	KeyCtrlG
+	// KeyCtrlBackslash is Ctrl-\ (byte 0x1c).
+	KeyCtrlBackslash
+	// KeyCtrlRBracket is Ctrl-] (byte 0x1d). Conventional "wrapper/palette"
+	// chord (historic telnet escape, unused by modern TUIs).
+	KeyCtrlRBracket
+	// KeyCtrlCaret is Ctrl-^ (byte 0x1e).
+	KeyCtrlCaret
+	// KeyCtrlUnderscore is Ctrl-_ (byte 0x1f).
+	KeyCtrlUnderscore
 )
 
 // Key is a single keyboard event: either a plain rune (Special == KeyNone)

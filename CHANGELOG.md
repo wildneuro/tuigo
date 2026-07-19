@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased - v0.1.19
+
+- **Hotkeys.** New `OnHotkey(k SpecialKey, handler func())` option — sugar
+  over `Global()(OnSpecialKey(...))` — plus the free C0 control bytes are now
+  parsed as distinct `SpecialKey`s: Ctrl-Space, Ctrl-G, Ctrl-\, Ctrl-],
+  Ctrl-^, Ctrl-_.
+
 ## v0.1.18 - 2026-07-17
 
 (v0.1.17 was tagged as a placeholder maintenance release with no changes;
