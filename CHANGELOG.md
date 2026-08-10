@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased - v0.1.22
+
+Three root-cause fixes, each motivated by a real consumer bug in a confirm
+dialog rendering empty.
+
+- **Native `Button` widget** (widgets.go). tuigo had Menu/Panel/Badge but no
+  Button, forcing every consumer to hand-roll a Box+Text+OnClick. New
+  `ButtonState` (`ButtonNormal`/`ButtonFocused`/`ButtonPressed`, CALLER-owned
+  per tuigo's immediate-mode style) and `Button(label string, state
+  ButtonState, onClick func(MouseEvent)) Element` — a one-row clickable
+  label styled like Menu's rows: normal is bright-white-on-black, focused
+  swaps in `Theme.Accent`, pressed inverts for a click flash (pair with
+  `Ctx.After` to end the flash).
+- **Flex min-content floor** (layout/flexbox.go). `layoutChildren` used to
+  give every flex child an equal share of remaining space with no floor, so
+  a bordered child (e.g. a Menu = FlexColumn+Border needing N+2 rows) inside
+  a too-short parent could silently collapse to 0-2 rows — content just
+  vanished. New `minContentMainSize` computes a child's minimum
+  border+padding+children size along the layout direction; `layoutChildren`
+  now runs an iterative waterfall that pins any flex child whose min-content
+  exceeds its current equal share, re-splitting the remainder among the
+  rest, until stable. If pinned minimums still overflow the available
+  space, each child keeps its minimum and the container overflows (the
+  renderer already clips) rather than every child collapsing to nothing.
+  Explicit `Width`/`Height` still wins outright.
+- **Reliable `Ctx.After`** (state.go). The timer callback used to be
+  delivered with a non-blocking send (`default:` drop) when the timers
+  channel was full, silently losing callbacks. `appState` gains a `done`
+  channel, closed exactly once (via `sync.Once`) when render's event loop
+  returns on every exit path including a recovered panic. `Ctx.After`'s
+  internal send now blocks, racing against `<-c.app.done` so a callback
+  firing after the loop has already exited unblocks instead of leaking its
+  goroutine — `stop()` semantics are unchanged.
+
 ## Unreleased - v0.1.19
 
 - **Hotkeys.** New `OnHotkey(k SpecialKey, handler func())` option — sugar

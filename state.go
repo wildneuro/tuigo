@@ -66,6 +66,17 @@ type appState struct {
 
 	timers          chan func()
 	pendingOverlays []Overlay
+
+	// done is closed exactly once, when render's event loop returns (see
+	// tuigo.go), and never before. Ctx.After races its blocking send on
+	// timers against a receive from done: without this, a timer firing
+	// after the loop has already exited would block forever trying to push
+	// onto a channel nobody drains anymore, leaking its goroutine for the
+	// lifetime of the process. closeDone guards the close with sync.Once so
+	// multiple exit paths (return nil, a panic recovered by render's defer,
+	// etc.) can't double-close it.
+	done      chan struct{}
+	closeDone func()
 }
 
 type Ctx struct {
@@ -158,11 +169,20 @@ func (c *Ctx) OnCleanup(fn func()) {
 	c.inst.timers = append(c.inst.timers, fn)
 }
 
+// After schedules fn to run on the render loop after d, delivered via the
+// same timers channel Ctx.Wake uses so it lands between frames like any
+// other event. Unlike a plain non-blocking send on a possibly-full
+// channel, this NEVER drops fn: it blocks on the send, racing it against
+// app.done so a timer firing after the loop has already exited (window
+// closed, program exiting) unblocks instead of leaking its goroutine
+// forever. The returned stop() cancels the underlying timer exactly as
+// before; a timer that already fired and is blocked on the send still
+// exits promptly once render returns and closes done.
 func (c *Ctx) After(d time.Duration, fn func()) func() {
 	t := time.AfterFunc(d, func() {
 		select {
 		case c.app.timers <- fn:
-		default:
+		case <-c.app.done:
 		}
 	})
 	stop := t.Stop

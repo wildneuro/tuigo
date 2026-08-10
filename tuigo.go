@@ -1,6 +1,7 @@
 package tuigo
 
 import (
+	"sync"
 	"time"
 
 	"github.com/wildneuro/tuigo/layout"
@@ -47,7 +48,15 @@ func render(component Component, newTerm func() (*renderer.Terminal, error)) (er
 	app := &appState{
 		rootInst: &instance{},
 		timers:   make(chan func(), 32),
+		done:     make(chan struct{}),
 	}
+	var closeDoneOnce sync.Once
+	app.closeDone = func() { closeDoneOnce.Do(func() { close(app.done) }) }
+	// Every return path out of render — the normal loop exit below, and a
+	// recovered panic via the defer above — must close done exactly once so
+	// no Ctx.After goroutine outlives this call. defer (not an explicit
+	// close before each return) is what makes the panic path safe too.
+	defer app.closeDone()
 	app.width, app.height = term.Size()
 
 	keyCh := term.Keys()

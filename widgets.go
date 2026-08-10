@@ -107,6 +107,60 @@ func Dialog(viewportW, viewportH, dialogW, dialogH int, title string, bodyOpts .
 	)
 }
 
+// ButtonState is the visual state of a Button. Immediate-mode widgets have
+// no persistent internal state of their own (see STYLEGUIDE.md) — the
+// CALLER owns which state to render, typically by tracking a focused/
+// pressed key in its own UseState and comparing it against this Button's
+// identity each render. Pair ButtonPressed with Ctx.After to end a brief
+// "press flash" a frame or two after a click, the same way a native GUI
+// button flashes before its click handler's effect becomes visible.
+type ButtonState int
+
+const (
+	// ButtonNormal is a button's resting look: no focus, no click in flight.
+	ButtonNormal ButtonState = iota
+	// ButtonFocused marks the keyboard-focus / hover target — the button
+	// Enter/Space (or a mouse hover, once tuigo has one) would activate.
+	ButtonFocused
+	// ButtonPressed is the brief inverted flash shown right after a click,
+	// before the caller's onClick side effect (and any resulting re-render)
+	// lands. The caller is responsible for reverting to Normal/Focused after
+	// a short Ctx.After delay; Button itself never times out on its own.
+	ButtonPressed
+)
+
+// Button is a one-row clickable label — the primitive tuigo lacked, forcing
+// consumers to hand-roll a Box+Text+OnClick every time they needed a
+// pressable control (see e.g. tldrq's confirm dialogs). Pass onClick as nil
+// for a purely decorative / disabled-looking button; it renders but never
+// fires. Styling: ButtonNormal is a plain reverse-video-less row (bright
+// white on black) so it reads as clickable without shouting; ButtonFocused
+// swaps in Theme.Accent as the background so the keyboard-focus target is
+// obvious; ButtonPressed inverts normal's colors (bright-white background,
+// black text) for a flash that reads as "this just got clicked" even
+// without a mouse-hover concept.
+func Button(label string, state ButtonState, onClick func(MouseEvent)) Element {
+	fg, bg := ColorBrightWhite, ColorBlack
+	bold := false
+	switch state {
+	case ButtonFocused:
+		bg = Theme.Accent
+		bold = true
+	case ButtonPressed:
+		fg, bg = ColorBlack, ColorBrightWhite
+		bold = true
+	}
+	var click Option = func(*Element) {}
+	if onClick != nil {
+		click = OnClick(onClick)
+	}
+	text := With(Text(" %s ", label), ColorFg(fg))
+	if bold {
+		text = With(text, Bold())
+	}
+	return Box(Height(1), ColorBg(bg), click, Children(text))
+}
+
 // MenuItem is one row in a Menu.
 type MenuItem struct {
 	Label string

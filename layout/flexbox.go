@@ -135,9 +135,58 @@ func layoutChildren(children []types.Element, style types.Style, content Rect) [
 		used += sz
 	}
 	remaining := max(mainSize-used, 0)
-	flexSize := 0
+
+	// Give every flex child at least its min-content size before splitting
+	// the rest equally. Without this, a bordered/padded flex child (e.g. a
+	// Menu = FlexColumn+Border needing N+2 rows) inside a too-short parent
+	// silently collapses toward 0 rows — its content vanishes with no
+	// visual trace of why. This is a classic flexbox min-size "waterfall":
+	// repeatedly pin the child whose min-content exceeds its current equal
+	// share at that min, then re-split the remaining space (and remaining
+	// budget) among the still-unpinned children, until no pinned child
+	// remains oversized relative to a fresh equal split. At most flexCount
+	// iterations (one child gets pinned per pass in the worst case).
 	if flexCount > 0 {
-		flexSize = remaining / flexCount
+		pinned := make([]bool, n)
+		pinnedTotal := 0
+		activeCount := flexCount
+		for {
+			if activeCount == 0 {
+				break
+			}
+			share := (remaining - pinnedTotal) / activeCount
+			changed := false
+			for i, c := range children {
+				if sizes[i] != -1 || pinned[i] {
+					continue
+				}
+				m := minContentMainSize(c, dir, content)
+				if m > share {
+					sizes[i] = m
+					pinned[i] = true
+					pinnedTotal += m
+					activeCount--
+					changed = true
+				}
+			}
+			if !changed {
+				break
+			}
+		}
+		// Whatever's left over the min-content floors is split equally among
+		// the still-unpinned flex children. If pinnedTotal alone already
+		// exceeds remaining, activeCount is 0 here (every child got pinned
+		// at its min in the loop above) and the row/column simply overflows
+		// — the renderer clips it, which beats every child silently
+		// collapsing to nothing.
+		if activeCount > 0 {
+			leftoverShare := max(remaining-pinnedTotal, 0) / activeCount
+			for i, sz := range sizes {
+				if sz == -1 {
+					sizes[i] = leftoverShare
+				}
+			}
+		}
 	}
 
 	nodes := make([]Node, n)
@@ -146,10 +195,9 @@ func layoutChildren(children []types.Element, style types.Style, content Rect) [
 		pos = content.Y
 	}
 	for i, c := range children {
+		// Every -1 (flex) slot was resolved above, either pinned to its
+		// min-content size or given an equal leftover share.
 		sz := sizes[i]
-		if sz < 0 {
-			sz = flexSize
-		}
 		var childRect Rect
 		if dir == types.FlexDirectionRow {
 			childRect = Rect{X: pos, Y: content.Y, W: sz, H: content.H}
@@ -190,6 +238,77 @@ func intrinsicMainSize(c types.Element, dir types.FlexDirection, content Rect) i
 		return len(WrapText(c.Text, max(content.W, 1)))
 	}
 	return len([]rune(c.Text))
+}
+
+// maxMinContentDepth caps minContentMainSize's recursion. A pathological or
+// cyclic-looking tree (there's no cycle possible in an immutable Element
+// tree, but a very deep one is plausible from generated UI) degrades to
+// "no floor" beyond this depth rather than blowing the stack.
+const maxMinContentDepth = 32
+
+// minContentMainSize returns the smallest size c can be laid out at along
+// dir without losing content: for Text, its existing intrinsic (wrapped)
+// size; for a Box, its border (2 cells, if any) plus padding along dir plus
+// its children's min-content, summed if the Box's own flex direction
+// matches dir (children stack, so their minimums add) or maxed if it's
+// cross-wise (children overlap the main axis, so the largest one governs).
+// An explicit Width/Height on c always wins outright — that's the author
+// asserting an exact size, not a floor. This is what lets a bordered flex
+// child (e.g. Menu) claim at least enough room for its border-plus-rows
+// instead of collapsing to 0 when its parent is short on space.
+func minContentMainSize(c types.Element, dir types.FlexDirection, content Rect) int {
+	return minContentMainSizeDepth(c, dir, content, 0)
+}
+
+func minContentMainSizeDepth(c types.Element, dir types.FlexDirection, content Rect, depth int) int {
+	if depth >= maxMinContentDepth {
+		return 0
+	}
+	if sz := explicitMainSize(c, dir); sz >= 0 {
+		return sz
+	}
+	if c.Type == types.ElementTypeText {
+		if m := intrinsicMainSize(c, dir, content); m >= 0 {
+			return m
+		}
+		return 0
+	}
+	if c.Type != types.ElementTypeBox {
+		return 0 // Fragment/Canvas: no min-content floor of their own
+	}
+
+	min := 0
+	if c.Style.Border != types.BorderNone {
+		min += 2
+	}
+	if dir == types.FlexDirectionRow {
+		min += c.Style.Padding[1] + c.Style.Padding[3] // right + left
+	} else {
+		min += c.Style.Padding[0] + c.Style.Padding[2] // top + bottom
+	}
+
+	if len(c.Children) == 0 {
+		return min
+	}
+	// Shrink content by this box's own border/padding before recursing, so
+	// grandchildren's Text-wrapping min-content is computed against the
+	// space actually available to them, not the outer content rect.
+	childContent := ContentRect(Rect{W: content.W, H: content.H}, c.Style)
+
+	if c.Style.FlexDir == dir {
+		childrenMin := c.Style.Gap * max(len(c.Children)-1, 0)
+		for _, cc := range c.Children {
+			childrenMin += minContentMainSizeDepth(cc, dir, childContent, depth+1)
+		}
+		return min + childrenMin
+	}
+	maxChild := 0
+	for _, cc := range c.Children {
+		if m := minContentMainSizeDepth(cc, dir, childContent, depth+1); m > maxChild {
+			maxChild = m
+		}
+	}
+	return min + maxChild
 }
 
 // intrinsicCrossSize returns the intrinsic cross-axis size for a child in a
