@@ -251,3 +251,57 @@ func TestLayoutDeterministicAndNonMutating(t *testing.T) {
 		t.Errorf("Layout mutated its input Element")
 	}
 }
+
+func TestMinContentHeightShortTextAtWideWidth(t *testing.T) {
+	if got := MinContentHeight(text("hello"), 80); got != 1 {
+		t.Errorf("MinContentHeight(short text, 80) = %d, want 1", got)
+	}
+}
+
+func TestMinContentHeightLongTextWrapsAtNarrowWidth(t *testing.T) {
+	s := "this is a fairly long line of text that will wrap across several rows"
+	want := len(WrapText(s, 20))
+	if got := MinContentHeight(text(s), 20); got != want {
+		t.Errorf("MinContentHeight(long text, 20) = %d, want %d (WrapText line count)", got, want)
+	}
+}
+
+func TestMinContentHeightColumnSumsWrapPlusFixedRows(t *testing.T) {
+	longText := "this is a fairly long line of text that will wrap across several rows"
+	wrapLines := len(WrapText(longText, 20))
+	el := box(
+		withStyle(types.Style{FlexDir: types.FlexDirectionColumn}),
+		withChildren(
+			text(longText),
+			text(""),
+			box(withStyle(types.Style{Height: 1})),
+		),
+	)
+	want := wrapLines + 1 + 1
+	if got := MinContentHeight(el, 20); got != want {
+		t.Errorf("MinContentHeight(column) = %d, want %d", got, want)
+	}
+}
+
+func TestMinContentHeightBorderedChildAddsTwoRows(t *testing.T) {
+	inner := box(
+		withStyle(types.Style{FlexDir: types.FlexDirectionColumn}),
+		withChildren(text("a")),
+	)
+	bordered := box(
+		withStyle(types.Style{Border: types.BorderRounded, FlexDir: types.FlexDirectionColumn}),
+		withChildren(text("a")),
+	)
+	got := MinContentHeight(bordered, 20)
+	want := MinContentHeight(inner, 20) + 2
+	if got != want {
+		t.Errorf("MinContentHeight(bordered) = %d, want %d (unbordered + 2)", got, want)
+	}
+}
+
+func TestMinContentHeightExplicitHeightWins(t *testing.T) {
+	el := box(withStyle(types.Style{Height: 42}), withChildren(text("this would normally wrap to many lines if not for the explicit height")))
+	if got := MinContentHeight(el, 5); got != 42 {
+		t.Errorf("MinContentHeight(explicit Height=42) = %d, want 42 (explicit wins)", got)
+	}
+}

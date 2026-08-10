@@ -3,6 +3,8 @@ package tuigo
 import (
 	"strings"
 	"time"
+
+	"github.com/wildneuro/tuigo/layout"
 )
 
 // This file holds composed widgets built entirely from Box/Text/Option —
@@ -95,7 +97,34 @@ func Clock(layout string) Element {
 // z-order/absolute-positioning compositing yet (see TODO.md), so a Dialog
 // is meant to fully replace the tree it's shown in while open, not draw on
 // top of other content.
+//
+// dialogH <= 0 = size to content: wrapped Text is measured at the dialog's
+// real inner width (dialogW minus Panel's border and left/right padding),
+// so callers never hand-count rows — the classic bug this avoids is a body
+// line that wraps to more rows than the caller guessed, pushing later rows
+// (e.g. a button row) past the bottom of the panel where they get clipped.
+// A positive dialogH keeps the exact legacy behavior (fixed size, no
+// measurement). The result is clamped to at least 3 rows (enough for the
+// border + title alone) and at most viewportH-2.
 func Dialog(viewportW, viewportH, dialogW, dialogH int, title string, bodyOpts ...Option) Element {
+	if dialogH <= 0 {
+		// Mirror Panel's own body construction (Border + FlexColumn +
+		// PaddingLeft/Right(1)) WITHOUT the titleBar it prepends, so
+		// MinContentHeight measures only the caller's body content plus the
+		// panel's own border/padding frame. The titleBar's fixed 1 row is
+		// added back separately below — measuring the full Panel (titleBar
+		// included) would double-count it, since titleBar is itself an
+		// Height(1) child of the same FlexColumn body.
+		bodyBox := Box(append([]Option{FlexColumn(), Border(BorderRounded), PaddingLeft(1), PaddingRight(1), Width(dialogW)}, bodyOpts...)...)
+		frameH := layout.MinContentHeight(bodyBox, dialogW)
+		dialogH = frameH + 1 // + titleBar row
+		if vmax := viewportH - 2; dialogH > vmax {
+			dialogH = vmax
+		}
+		if dialogH < 3 {
+			dialogH = 3
+		}
+	}
 	box := Panel(title, append([]Option{Width(dialogW), Height(dialogH)}, bodyOpts...)...)
 	return Box(
 		Width(viewportW), Height(viewportH), FlexColumn(),

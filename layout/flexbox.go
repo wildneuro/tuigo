@@ -311,6 +311,16 @@ func minContentMainSizeDepth(c types.Element, dir types.FlexDirection, content R
 	return min + maxChild
 }
 
+// MinContentHeight returns the min-content main-size of el in a Column
+// context when laid out at the given width: wrapped Text counts its wrapped
+// line count at that width, bordered/padded boxes add their frame, and an
+// explicit Height wins outright. This is the hook widgets use for
+// auto-height (e.g. Dialog sizing itself to its body instead of making
+// callers hand-count rows).
+func MinContentHeight(el types.Element, width int) int {
+	return minContentMainSizeDepth(el, types.FlexDirectionColumn, Rect{W: width}, 0)
+}
+
 // intrinsicCrossSize returns the intrinsic cross-axis size for a child in a
 // Row layout (i.e., the height a Text node needs when it wraps). Returns -1
 // if the child should just use the parent's cross-axis size.

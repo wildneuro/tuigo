@@ -1,6 +1,11 @@
 package tuigo
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/wildneuro/tuigo/layout"
+)
 
 func TestPanelPrependsTitleBar(t *testing.T) {
 	p := Panel("Chat", Children(Text("body")))
@@ -153,5 +158,62 @@ func TestClockFormatsCurrentTime(t *testing.T) {
 	c := Clock("15:04:05")
 	if len(c.Text) != len("15:04:05") {
 		t.Errorf("Clock(\"15:04:05\").Text = %q, want 8 characters", c.Text)
+	}
+}
+
+// TestDialogAutoHeightSizesToWrappedBody reproduces the real promote-confirm
+// bug: a dw=50 dialog whose gray body Text wraps to 2 rows at the panel's
+// real inner width. The caller used to have to hand-count "1 text row" and
+// hardcode dialogH=6, which clipped the buttons row one line past the
+// bottom of the content box. dialogH<=0 must instead measure the wrap and
+// produce enough room for every row, including the buttons row landing
+// inside the panel, not past it.
+func TestDialogAutoHeightSizesToWrappedBody(t *testing.T) {
+	const dw = 50
+	innerW := dw - 2 /*border*/ - 2 /*PaddingLeft+PaddingRight*/
+	grayText := "This action cannot be undone and will affect every downstream consumer"
+	if got := len(layout.WrapText(grayText, innerW)); got != 2 {
+		t.Fatalf("test setup: grayText wraps to %d lines at width %d, want exactly 2 (adjust fixture text)", got, innerW)
+	}
+
+	viewportW, viewportH := 80, 24
+	dlg := Dialog(viewportW, viewportH, dw, 0, "Confirm", Children(
+		With(Text("%s", grayText), ColorFg(ColorGray)),
+		Text(""),
+		Box(FlexRow(), Height(1), Children(Text("[Yes]"), Text("[No]"))),
+	))
+
+	// Locate the Panel box (viewport > middle row > [spacer, panel, spacer]).
+	panel := dlg.Children[1].Children[1]
+	if got := panel.Style.Height; got != 7 {
+		t.Fatalf("auto dialogH = %d, want 7 (2 wrapped body rows + blank + buttons row = 4, +3 border/title chrome)", got)
+	}
+
+	// Assert the buttons row's laid-out rect actually falls inside the
+	// panel, not past it — the exact failure mode of the original bug.
+	root := layout.Layout(dlg, viewportW, viewportH)
+	panelNode := root.Children[1].Children[1]
+	buttonsNode := panelNode.Children[len(panelNode.Children)-1] // last child = buttons row
+	panelBottom := panelNode.Rect.Y + panelNode.Rect.H
+	buttonsBottom := buttonsNode.Rect.Y + buttonsNode.Rect.H
+	if buttonsNode.Rect.Y < panelNode.Rect.Y || buttonsBottom > panelBottom {
+		t.Errorf("buttons row rect %+v falls outside panel rect %+v (clipped)", buttonsNode.Rect, panelNode.Rect)
+	}
+}
+
+func TestDialogAutoHeightClampsToTinyViewport(t *testing.T) {
+	longText := strings.Repeat("wrap ", 40)
+	dlg := Dialog(20, 6, 15, 0, "T", Children(With(Text("%s", longText), ColorFg(ColorGray))))
+	panel := dlg.Children[1].Children[1]
+	if got, want := panel.Style.Height, 4; got != want { // viewportH-2 = 4
+		t.Errorf("clamped dialogH = %d, want %d (viewportH-2)", got, want)
+	}
+}
+
+func TestDialogPositiveHeightUnchanged(t *testing.T) {
+	dlg := Dialog(80, 24, 50, 6, "Confirm", Children(Text("body")))
+	panel := dlg.Children[1].Children[1]
+	if got := panel.Style.Height; got != 6 {
+		t.Errorf("explicit dialogH=6 was overridden: got %d, want 6 (legacy behavior pinned)", got)
 	}
 }
