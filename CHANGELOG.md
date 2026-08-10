@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.23 - 2026-08-10
+
+- maintenance release (no notable changes)
+
+## Unreleased - v0.1.23
+
+- `layout.MinContentHeight(el, width)`: exported min-content main-size of an
+  element in a Column context at a given width (wrapped Text counts its
+  wrapped line count; bordered boxes add their frame; explicit Height wins).
+- `Dialog(..., dialogH, ...)`: `dialogH <= 0` now sizes the dialog to its
+  body's content automatically instead of requiring the caller to
+  hand-count rows. Root-caused a real bug: a dw=50 dialog whose body Text
+  wrapped to 2 rows at the panel's real inner width left the buttons row
+  laid out one row past the bottom of the content box, clipped. Positive
+  `dialogH` keeps the exact prior fixed-size behavior.
+
 ## v0.1.22 - 2026-08-10
 
 - release v0.1.19
