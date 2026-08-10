@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.22 - 2026-08-10
+
+- release v0.1.19
+- Button widget + flex min-content floor + reliable Ctx.After
+
 ## v0.1.19 - 2026-08-10
 
 - Button widget + flex min-content floor + reliable Ctx.After
