@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.24 - 2026-08-10
+
+- Dialog auto-height: dialogH<=0 sizes to min-content at real inner width
+
 ## v0.1.23 - 2026-08-10
 
 - maintenance release (no notable changes)
