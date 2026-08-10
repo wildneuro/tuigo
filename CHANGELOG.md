@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.19 - 2026-08-10
+
+- Button widget + flex min-content floor + reliable Ctx.After
+
 ## Unreleased - v0.1.22
 
 Three root-cause fixes, each motivated by a real consumer bug in a confirm
