@@ -217,3 +217,34 @@ func TestDialogPositiveHeightUnchanged(t *testing.T) {
 		t.Errorf("explicit dialogH=6 was overridden: got %d, want 6 (legacy behavior pinned)", got)
 	}
 }
+
+func TestMeasureContentMatchesLayoutMinContentHeight(t *testing.T) {
+	el := Panel("Title", Children(With(Text("%s", strings.Repeat("wrap ", 20)), ColorFg(ColorGray))))
+	want := layout.MinContentHeight(el, 20)
+	if got := MeasureContent(el, 20); got != want {
+		t.Errorf("MeasureContent(el, 20) = %d, want %d (layout.MinContentHeight)", got, want)
+	}
+}
+
+func TestMeasureContentAgreesWithDialogAutoHeight(t *testing.T) {
+	// Dialog's dialogH<=0 path builds a bodyBox (Border+FlexColumn+padding,
+	// no titleBar) and measures it, then adds 1 for the titleBar row.
+	// MeasureContent on the same shape should reproduce that frame height.
+	longText := strings.Repeat("wrap ", 40)
+	const viewportW, viewportH, dialogW = 80, 24, 15
+	dlg := Dialog(viewportW, viewportH, dialogW, 0, "T", Children(With(Text("%s", longText), ColorFg(ColorGray))))
+	panel := dlg.Children[1].Children[1]
+
+	bodyBox := Box(FlexColumn(), Border(BorderRounded), PaddingLeft(1), PaddingRight(1), Width(dialogW),
+		Children(With(Text("%s", longText), ColorFg(ColorGray))))
+	frameH := MeasureContent(bodyBox, dialogW) + 1 // + titleBar row
+	if want := viewportH - 2; frameH > want {
+		frameH = want
+	}
+	if frameH < 3 {
+		frameH = 3
+	}
+	if got := panel.Style.Height; got != frameH {
+		t.Errorf("Dialog auto-height = %d, MeasureContent-derived = %d, want equal", got, frameH)
+	}
+}

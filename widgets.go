@@ -91,12 +91,31 @@ func Clock(layout string) Element {
 	return With(Text("%s", time.Now().Format(layout)), ColorFg(ColorGray))
 }
 
+// MeasureContent returns the minimum content height needed to render el when
+// laid out at the given width — the exact primitive Dialog uses internally
+// (layout.MinContentHeight) to size a dialogH<=0 auto-sizing dialog. It's
+// exposed standalone so a caller building their own Panel+Border tree for
+// Ctx.Overlay (a true floating panel — see Overlay's doc comment) can size
+// that tree before constructing the Overlay, without going through Dialog's
+// full-viewport takeover path:
+//
+//	body := Panel("Title", Children(Text("hello")))
+//	h := MeasureContent(body, 40)
+//	ctx.Overlay(With(body, Width(40), Height(h)), x, y)
+func MeasureContent(el Element, width int) int {
+	return layout.MinContentHeight(el, width)
+}
+
 // Dialog centers a titled Panel of exactly dialogW x dialogH within a
 // viewportW x viewportH screen, using flex spacers on every side. It's a
-// full-viewport takeover, not a true floating overlay — tuigo has no
-// z-order/absolute-positioning compositing yet (see TODO.md), so a Dialog
-// is meant to fully replace the tree it's shown in while open, not draw on
-// top of other content.
+// full-viewport takeover BY DESIGN, not a floating panel: it replaces the
+// entire tree it's shown in while open (main content goes fully behind it),
+// which is still the right call when a dialog should demand full attention
+// (a blocking confirm, a fatal-error screen). For a true floating panel that
+// draws on top of other content without blanking the rest of the session —
+// a toast, a PiP widget, a popup menu — use Ctx.Overlay instead (see its doc
+// comment); pair it with MeasureContent to size a hand-built Panel+Border
+// tree, and DimBackdrop if the overlay should dim the backdrop behind it.
 //
 // dialogH <= 0 = size to content: wrapped Text is measured at the dialog's
 // real inner width (dialogW minus Panel's border and left/right padding),

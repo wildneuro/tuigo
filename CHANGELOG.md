@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- `DimBackdrop(buf *renderer.Buffer, fg, bg Color)`: darkens every cell
+  already painted into a frame Buffer, in place — repaints each cell's
+  Fg/Bg to the given near-black colors and clears Bold/Italic/Underline,
+  leaving the Rune untouched so the backdrop's shape still shows through,
+  just dimmed. Lets a Ctx.Overlay panel read as a floating window over
+  dimmed content instead of every app hand-rolling its own shadow
+  compositing (the approach tldrq's chat/panel overlays used before
+  Overlay existed).
+- `MeasureContent(el Element, width int) int`: standalone wrapper around
+  `layout.MinContentHeight`, the exact sizing primitive Dialog already
+  uses internally for its `dialogH<=0` auto-sizing path. Lets a caller
+  building their own Panel+Border tree for `Ctx.Overlay` size that tree
+  before constructing the Overlay, without going through Dialog's
+  full-viewport takeover.
+- `Dialog`'s doc comment no longer claims tuigo has no z-order/overlay
+  compositing (stale since Overlay shipped in v0.1.16) — it now explains
+  Dialog is a full-viewport takeover by design and points to Ctx.Overlay
+  (paired with `MeasureContent` and `DimBackdrop`) for a true floating
+  panel.
+
 ## v0.1.24 - 2026-08-10
 
 - Dialog auto-height: dialogH<=0 sizes to min-content at real inner width
