@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.25 - 2026-08-17
+
+- dialogs
+
 ## Unreleased
 
 - `DimBackdrop(buf *renderer.Buffer, fg, bg Color)`: darkens every cell
